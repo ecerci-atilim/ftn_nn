@@ -1,12 +1,4 @@
-% =========================================================================
-% FINAL EXPERIMENT: Generating Performance Curves for an Ensemble of Specialists
-% =========================================================================
-% SCIENTIFIC GOAL:
-% To achieve the highest possible performance for each tau value by training
-% a dedicated, specialist neural network for each one. This script will
-% train each specialist and then test it to generate a final family of
-% high-performance BER curves, proving the validity of this approach.
-% =========================================================================
+% Note: run this first!
 
 clear, clc, close all
 
