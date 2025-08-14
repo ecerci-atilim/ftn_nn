@@ -98,7 +98,6 @@ adaptive_model = trainNetwork(X_train, Y_train, layers, options);
 fprintf('\n--- PHASE 4: Saving the final, adaptive detector model ---\n');
 save('final_adaptive_detector.mat', 'adaptive_model');
 fprintf('Model saved successfully to "final_adaptive_detector.mat".\n');
-fprintf('You may now run the corresponding testing script.\n');
 
 
 %% --- HELPER FUNCTION ---

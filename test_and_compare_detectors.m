@@ -16,8 +16,8 @@ set(groot,'defaultLegendInterpreter','latex');             % Interpreter definit
 %% PHASE 1: LOAD MODELS AND SETUP
 fprintf('PHASE 1: Loading models and setting up parameters...\n');
 try
-    load('cnn_detector.mat');
-    load('final_df_fnn_detector.mat');
+    load('mat\cnn_detector.mat');
+    load('mat\final_df_fnn_detector.mat');
 catch ME
     error('Could not load model files. Please ensure they are in the MATLAB path.');
 end

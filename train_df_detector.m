@@ -72,7 +72,7 @@ fprintf('\nPHASE 2: Generating Teacher-Forced Training Data...\n');
 N = 50000;                  % Number of symbols to simulate for training
 SNR_for_training = 15;      % Train at a high, clean SNR
 sps = 10;                   % Samples per symbol
-tau = 0.8;                  % FTN acceleration factor (80% of Nyquist period)
+tau = 0.7;                  % FTN acceleration factor (80% of Nyquist period)
 beta = 0.3;                 % Rolloff factor for the RRC filter
 span = 6;                   % Filter span in symbols
 
@@ -153,8 +153,7 @@ ftn_detector_df_fnn = trainNetwork(X_train, Y_train, df_fnn_layers, options);
 %% PHASE 4: SAVING THE RESULT OF YOUR EXPERIMENT
 
 fprintf('\nPHASE 4: Saving the final, trained detector model...\n');
-objname = sprintf("df_fnn_detector_tau_%03d", tau*100);
-fname = [objname, '.mat'];
-save(fname, objname);
+fname = sprintf("df_fnn_detector_tau_%03d.mat", tau*100);
+save(fname, 'ftn_detector_df_fnn');
 fprintf('Model saved successfully to final_df_fnn_detector.mat.\n');
 fprintf('\nNEXT STEP: Use this saved model in a separate BER testing script to evaluate its performance.\n');
