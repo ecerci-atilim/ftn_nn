@@ -1,0 +1,156 @@
+% =========================================================================
+% FINAL, WORKING SCRIPT: The Universal "Oracle" CNN with Datastores
+% =========================================================================
+
+clear, clc, close all
+
+%% --- PHASE 1: USER-DEFINED PARAMETERS & ARCHITECTURE ---
+fprintf('--- PHASE 1: Setting up the Universal Network Training ---\n');
+
+% --- Select Modulation and System Parameters ---
+modulation_type = 'qam';
+modulation_order = 16;
+tau = 0.7;
+phase_offset = pi/4;
+
+% --- Network Hyperparameters ---
+window_len = 31; num_past_taps = 4; num_future_taps = 2; k = log2(modulation_order);
+signal_input_len = window_len * 2;
+num_history_features = (num_past_taps + num_future_taps) * 2;
+
+% --- Define the Multi-Branch Architecture ---
+lgraph = layerGraph();
+signal_branch = [
+    imageInputLayer([signal_input_len 1 1], 'Name', 'signal_input', 'Normalization', 'zscore');
+    convolution2dLayer([7 1], 32, 'Padding', 'same'); reluLayer; batchNormalizationLayer;
+    convolution2dLayer([5 1], 64, 'Padding', 'same'); reluLayer;
+    globalAveragePooling2dLayer('Name', 'gap1'); flattenLayer('Name', 'flatten_cnn')];
+lgraph = addLayers(lgraph, signal_branch);
+history_branch = [
+    featureInputLayer(num_history_features, 'Name', 'history_input', 'Normalization', 'zscore');
+    fullyConnectedLayer(32, 'Name', 'fc_history'); reluLayer('Name', 'relu_history')];
+lgraph = addLayers(lgraph, history_branch);
+main_trunk = [
+    concatenationLayer(1, 2, 'Name', 'concat');
+    fullyConnectedLayer(128, 'Name', 'fc_merge1'); reluLayer; dropoutLayer(0.4);
+    fullyConnectedLayer(k, 'Name', 'fc_final');
+    sigmoidLayer('Name', 'sigmoid');
+    regressionLayer('Name', 'loss')];
+lgraph = addLayers(lgraph, main_trunk);
+lgraph = connectLayers(lgraph, 'flatten_cnn', 'concat/in1');
+lgraph = connectLayers(lgraph, 'relu_history', 'concat/in2');
+fprintf('Architecture defined successfully.\n');
+
+%% --- PHASE 2: GENERATE TRAINING DATA ---
+fprintf('\n--- PHASE 2: Generating training data...\n');
+N_train = 80000;
+SNR_train_dB = 25;
+[x_train_signal, x_train_history, y_train_bits] = generate_universal_data(N_train, tau, SNR_train_dB, modulation_type, modulation_order, phase_offset, window_len, num_past_taps, num_future_taps);
+fprintf('Generated %d high-quality training samples.\n', size(y_train_bits, 1));
+
+%% --- PHASE 3: PREPARE DATASTORES AND TRAIN (FINAL CORRECTION) ---
+fprintf('\n--- PHASE 3: Creating Datastores and starting training...\n');
+
+% Partition the data using indices
+cv = cvpartition(size(y_train_bits, 1), 'HoldOut', 0.1);
+train_indices = training(cv);
+val_indices = test(cv);
+
+% --- Create Datastores for TRAINING data ---
+% THE CRUCIAL FIX: Reshape the signal data to be [Height x Width x Channels x N]
+X_train_signal_4D = reshape(x_train_signal(train_indices,:)', signal_input_len, 1, 1, []);
+dsSignalTrain = arrayDatastore(X_train_signal_4D, 'IterationDimension', 4);
+
+% THE CRUCIAL FIX: Explicitly define IterationDimension for the other datastores
+dsHistoryTrain = arrayDatastore(x_train_history(train_indices, :), 'IterationDimension', 1);
+dsLabelsTrain = arrayDatastore(y_train_bits(train_indices, :), 'IterationDimension', 1);
+
+cdsTrain = combine(dsSignalTrain, dsHistoryTrain, dsLabelsTrain);
+
+% --- Create Datastores for VALIDATION data ---
+X_val_signal_4D = reshape(x_train_signal(val_indices,:)', signal_input_len, 1, 1, []);
+dsSignalVal = arrayDatastore(X_val_signal_4D, 'IterationDimension', 4);
+dsHistoryVal = arrayDatastore(x_train_history(val_indices, :), 'IterationDimension', 1);
+dsLabelsVal = arrayDatastore(y_train_bits(val_indices, :), 'IterationDimension', 1);
+cdsVal = combine(dsSignalVal, dsHistoryVal, dsLabelsVal);
+
+fprintf('Datastores created correctly. Handing off to trainNetwork...\n');
+
+% --- Training Options ---
+options = trainingOptions('adam', 'MaxEpochs', 15, 'MiniBatchSize', 256, ...
+    'ValidationData', cdsVal, 'ValidationFrequency', 200, ...
+    'Verbose', true, 'Plots', 'training-progress', 'Shuffle', 'every-epoch');
+
+% --- Train the Network ---
+universal_model = trainNetwork(cdsTrain, lgraph, options);
+
+%% --- PHASE 4: SAVE THE MODEL ---
+fprintf('\n--- PHASE 4: Saving the final model...\n');
+if ~exist('mat', 'dir'), mkdir('mat'); end
+phase_str = strrep(sprintf('%.2fpi', phase_offset/pi), '.', 'p');
+fname = sprintf('mat/model_%s%d_tau%02d_phase%s_win%d_taps%d.mat', ...
+    modulation_type, modulation_order, tau*10, phase_str, window_len, num_past_taps+num_future_taps);
+save(fname, 'universal_model');
+fprintf('Model saved successfully to "%s".\n', fname);
+
+
+%% --- HELPER FUNCTIONS ---
+function [x_sig, x_hist, y_bits] = generate_universal_data(N_sym, tau, SNR_dB, mod_type, M, phase, win_len, num_past, num_future)
+    k = log2(M);
+    constellation = custom_modulator(M, mod_type, phase);
+    bits = randi([0 1], N_sym * k, 1);
+    symbols = map_bits_to_symbols(bits, k, constellation);
+    
+    sps=10; beta=0.3; span=6; h=rcosdesign(beta,span,sps,'sqrt');
+    tx_up = upsample(symbols, round(sps*tau));
+    txSignal = conv(tx_up, h);
+    
+    pwr = mean(abs(txSignal).^2); txSignal = txSignal / sqrt(pwr);
+    snr_lin = 10^(SNR_dB/10); noise_var = 1 / (2*snr_lin);
+    noise = sqrt(noise_var/2) * (randn(size(txSignal)) + 1j*randn(size(txSignal)));
+    rxSignal = txSignal + noise;
+    
+    rxMF = conv(rxSignal, h);
+    delay = finddelay(tx_up, rxMF);
+    
+    x_sig = zeros(N_sym, win_len * 2);
+    x_hist = zeros(N_sym, (num_past + num_future) * 2);
+    y_bits = zeros(N_sym, k);
+    
+    half_win = floor(win_len/2);
+    populated_rows = false(N_sym, 1);
+    
+    for i = (num_past + 1):(N_sym - num_future)
+        loc = round((i-1)*sps*tau) + 1 + delay;
+        if (loc > half_win) && (loc + half_win <= length(rxMF))
+            win_c = rxMF(loc-half-win:loc+half_win);
+            past_c = symbols(i-1:-1:i-num_past);
+            future_c = symbols(i+1:i+num_future);
+            
+            x_sig(i, :) = [real(win_c(:)'), imag(win_c(:)')];
+            x_hist(i, :) = [real(past_c(:)'), imag(past_c(:)'), real(future_c(:)'), imag(future_c(:)')];
+            y_bits(i, :) = bits( (i-1)*k+1 : i*k )';
+            
+            populated_rows(i) = true;
+        end
+    end
+    
+    x_sig = x_sig(populated_rows,:);
+    x_hist = x_hist(populated_rows,:);
+    y_bits = y_bits(populated_rows,:);
+end
+
+function constellation = custom_modulator(M, type, phase)
+    if strcmpi(type, 'psk'), p=0:M-1; constellation=exp(1j*(2*pi*p/M + phase));
+    elseif strcmpi(type, 'qam'), k=log2(M); if mod(k,2)~=0, error('QAM M must be a square number.'); end; n=sqrt(M); vals=-(n-1):2:(n-1); [X,Y]=meshgrid(vals,vals); constellation=X+1j*Y; constellation=constellation(:) * exp(1j*phase);
+    else error('Unknown modulation type.'); end
+    constellation = constellation / sqrt(mean(abs(constellation).^2));
+end
+
+function symbols = map_bits_to_symbols(bits, k, constellation)
+    num_symbols = floor(length(bits)/k);
+    symbols = zeros(num_symbols, 1);
+    bit_matrix = reshape(bits(1:num_symbols*k), k, num_symbols)';
+    indices = bi2de(bit_matrix, 'left-msb') + 1;
+    symbols = constellation(indices);
+end
