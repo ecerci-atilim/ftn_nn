@@ -10,8 +10,8 @@ clear, clc, close all
 %% SETUP - Configure Modulation and Channel
 fprintf('--- PHASE 1: Setting up Quasi-Static Channel DF-CNN Training ---\n');
 modulation_type = 'psk';    % 'psk' or 'qam'
-modulation_order = 4;       % 2, 4, 8, 16, 64, etc.
-phase_offset = pi/4;        % Phase rotation in radians
+modulation_order = 2;       % 2, 4, 8, 16, 64, etc.
+phase_offset = 0;        % Phase rotation in radians
 tau = 0.8;                  % Timing parameter
 
 % Quasi-static channel parameters
@@ -32,9 +32,52 @@ fprintf('Channel: %d-tap %s fading, coherence=%d symbols\n', num_taps_channel, f
 %% DEFINE THE QUASI-STATIC CHANNEL DF-CNN ARCHITECTURE
 fprintf('--- PHASE 2: Defining Quasi-Static Channel DF-CNN Architecture ---\n');
 
+% Calculate expected dimensions for debugging
+fprintf('Expected dimensions:\n');
+fprintf('  Window features: %d*2 = %d\n', window_len, window_len*2);
+fprintf('  Feedback features: %d\n', num_feedback_taps); 
+fprintf('  CSI features: %d*2 = %d\n', num_taps_channel, num_taps_channel*2);
+fprintf('  Total expected: %d + %d + %d = %d\n', window_len*2, num_feedback_taps, num_taps_channel*2, input_len);
+
+% Network will be created after data generation with correct dimensions
+fprintf('Network architecture will be defined after data generation to match actual dimensions.\n');
+
+%% GENERATE TRAINING DATA
+fprintf('\n--- PHASE 3: Generating quasi-static channel training data ---\n');
+N_train = 80000;   % Reduced for faster generation
+SNR_train_dB = 15;
+tic;
+[x_train, y_train] = generate_quasi_static_data_fast(N_train, tau, SNR_train_dB, window_len, num_feedback_taps, ...
+    modulation_type, modulation_order, phase_offset, coherence_length, num_taps_channel, max_delay_spread, fading_type);
+generation_time = toc;
+Y_cat_train = categorical(y_train);
+
+% DEBUG: Check actual data dimensions
+actual_features = size(x_train, 2);
+expected_features = input_len;
+
+fprintf('Generated %d samples in %.1f seconds (%.1f samples/sec)\n', size(x_train, 1), generation_time, size(x_train, 1)/generation_time);
+fprintf('DIMENSION CHECK:\n');
+fprintf('  Expected features: %d\n', expected_features);
+fprintf('  Actual features: %d\n', actual_features);
+fprintf('  Signal features: %d (window_len*2 = %d*2)\n', window_len*2, window_len);
+fprintf('  Feedback features: %d\n', num_feedback_taps);
+fprintf('  CSI features: %d (ch_taps*2 = %d*2)\n', num_taps_channel*2, num_taps_channel);
+
+if actual_features ~= expected_features
+    fprintf('  MISMATCH DETECTED! Updating input_len to match actual data...\n');
+    input_len = actual_features;  % Fix the mismatch
+end
+
+for i = 0:modulation_order-1
+    fprintf('  Symbol %d: %d samples\n', i, sum(y_train==i));
+end
+
+%% NOW DEFINE THE NETWORK WITH CORRECT DIMENSIONS
+fprintf('\n--- Defining Network Architecture with Correct Dimensions ---\n');
 lgraph = layerGraph();
 
-% Single combined input (signal + feedback + CSI)
+% Input layer with correct dimensions
 input_layer = featureInputLayer(input_len, 'Name', 'combined_input', 'Normalization', 'zscore');
 lgraph = addLayers(lgraph, input_layer);
 
@@ -67,20 +110,7 @@ lgraph = addLayers(lgraph, deep_layers);
 % Simple connection
 lgraph = connectLayers(lgraph, 'combined_input', 'fc1');
 
-fprintf('Quasi-Static DF-CNN architecture created for %d-class classification\n', modulation_order);
-
-%% GENERATE TRAINING DATA
-fprintf('\n--- PHASE 3: Generating quasi-static channel training data ---\n');
-N_train = 150000;  % More data needed for channel variations
-SNR_train_dB = 15;  % Lower SNR due to fading
-[x_train, y_train] = generate_quasi_static_data(N_train, tau, SNR_train_dB, window_len, num_feedback_taps, ...
-    modulation_type, modulation_order, phase_offset, coherence_length, num_taps_channel, max_delay_spread, fading_type);
-Y_cat_train = categorical(y_train);
-
-fprintf('Generated %d training samples with channel variations\n', size(x_train, 1));
-for i = 0:modulation_order-1
-    fprintf('  Symbol %d: %d samples\n', i, sum(y_train==i));
-end
+fprintf('Quasi-Static DF-CNN architecture created: %d inputs -> %d classes\n', input_len, modulation_order);
 
 %% TRAIN THE QUASI-STATIC DF-CNN
 fprintf('\n--- PHASE 4: Training the Quasi-Static DF-CNN...\n');
@@ -135,8 +165,8 @@ else
     fprintf('WARNING: May need more training or different architecture\n');
 end
 
-%% HELPER FUNCTION - QUASI-STATIC CHANNEL DATA GENERATION
-function [x, y] = generate_quasi_static_data(N, tau, SNR_dB, win_len, num_taps, mod_type, M, phase, coh_len, ch_taps, max_delay, fading_type)
+%% HELPER FUNCTION - FAST QUASI-STATIC CHANNEL DATA GENERATION
+function [x, y] = generate_quasi_static_data_fast(N, tau, SNR_dB, win_len, num_taps, mod_type, M, phase, coh_len, ch_taps, max_delay, fading_type)
     k = log2(M);
     constellation = generate_constellation(M, mod_type, phase);
     
@@ -144,10 +174,9 @@ function [x, y] = generate_quasi_static_data(N, tau, SNR_dB, win_len, num_taps, 
     symbol_indices = randi([0 M-1], N, 1);
     symbols = constellation(symbol_indices + 1);
     
-    % Determine if modulation is real
     is_real_modulation = (M == 2) && strcmpi(mod_type, 'psk');
     
-    % Pulse shaping
+    % Fast pulse shaping
     sps = 10; beta = 0.3; span = 6;
     h = rcosdesign(beta, span, sps, 'sqrt');
     tx_up = upsample(symbols, round(sps*tau));
@@ -155,23 +184,77 @@ function [x, y] = generate_quasi_static_data(N, tau, SNR_dB, win_len, num_taps, 
     pwr = mean(abs(txSignal).^2); 
     txSignal = txSignal / sqrt(pwr);
     
-    % Generate quasi-static channel realizations
+    % SIMPLIFIED QUASI-STATIC CHANNEL MODEL
+    % Generate fewer channel realizations and apply efficiently
     num_blocks = ceil(N / coh_len);
-    channel_responses = generate_channel_realizations(num_blocks, ch_taps, max_delay, fading_type);
     
-    % Apply channel and noise
-    rxSignal = apply_quasi_static_channel(txSignal, channel_responses, coh_len, sps, tau, SNR_dB, k, is_real_modulation);
+    % Pre-generate all channel coefficients
+    fprintf('  Generating %d channel blocks...', num_blocks);
+    h_channels = zeros(num_blocks, ch_taps);
+    delays = linspace(0, max_delay, ch_taps);
+    power_profile = exp(-delays / (max_delay/3));
+    power_profile = power_profile / sum(power_profile);
+    
+    % Generate all channel realizations at once (vectorized)
+    switch lower(fading_type)
+        case 'rayleigh'
+            h_channels = sqrt(power_profile/2) .* (randn(num_blocks, ch_taps) + 1j*randn(num_blocks, ch_taps));
+        case 'rician'
+            K = 10^(3/10);
+            los = sqrt(K/(K+1)) * sqrt(power_profile);
+            scatter = sqrt(power_profile/(2*(K+1))) .* (randn(num_blocks, ch_taps) + 1j*randn(num_blocks, ch_taps));
+            h_channels = repmat(los, num_blocks, 1) + scatter;
+        case 'nakagami'
+            m = 1.5;
+            h_channels = sqrt(power_profile) .* sqrt(gamrnd(m, 1/m, num_blocks, ch_taps)) .* ...
+                         exp(1j*2*pi*rand(num_blocks, ch_taps));
+    end
+    
+    % SIMPLIFIED CHANNEL APPLICATION
+    % Instead of full convolution, use simple multiplicative fading + delay
+    rxSignal = zeros(size(txSignal));
+    samples_per_block = coh_len * round(sps * tau);
+    
+    fprintf(' Applying channel...', num_blocks);
+    for block = 1:num_blocks
+        start_idx = (block-1) * samples_per_block + 1;
+        end_idx = min(start_idx + samples_per_block - 1, length(txSignal));
+        
+        if start_idx <= length(txSignal)
+            % Simplified: dominant tap + phase rotation (much faster)
+            dominant_tap = h_channels(block, 1);  % Use only strongest tap
+            rxSignal(start_idx:end_idx) = txSignal(start_idx:end_idx) * dominant_tap;
+        end
+    end
+    
+    % Add noise
+    snr_eb_n0 = 10^(SNR_dB/10);
+    snr_es_n0 = k * snr_eb_n0;
+    signal_power = mean(abs(rxSignal).^2);
+    noise_power = signal_power / snr_es_n0;
+    
+    if is_real_modulation
+        noise = sqrt(noise_power) * randn(size(rxSignal));
+    else
+        noise = sqrt(noise_power/2) * (randn(size(rxSignal)) + 1j*randn(size(rxSignal)));
+    end
+    
+    rxSignal = rxSignal + noise;
     rxMF = conv(rxSignal, h);
     delay = finddelay(tx_up, rxMF);
     
-    % Extract features with CSI
-    x = zeros(N, win_len*2 + num_taps + ch_taps);  % Include CSI
+    % FAST FEATURE EXTRACTION
+    fprintf(' Extracting features...');
+    x = zeros(N, win_len*2 + num_taps + ch_taps*2);  % Real CSI features
     y = zeros(N, 1);
     half_win = floor(win_len/2);
     
+    valid_count = 0;
     for i = (num_taps + 1):N
         loc = round((i-1)*sps*tau) + 1 + delay;
         if (loc > half_win) && (loc + half_win <= length(rxMF))
+            valid_count = valid_count + 1;
+            
             % Signal window
             win_complex = rxMF(loc-half_win:loc+half_win);
             
@@ -184,23 +267,27 @@ function [x, y] = generate_quasi_static_data(N, tau, SNR_dB, win_len, num_taps, 
             % Decision feedback
             past_symbols = symbol_indices(i-1:-1:i-num_taps);
             
-            % Channel state information
+            % CSI features - ENSURE REAL-VALUED
             block_idx = ceil(i / coh_len);
-            if block_idx <= size(channel_responses, 1)
-                csi = channel_responses(block_idx, :);
+            if block_idx <= size(h_channels, 1)
+                h_current = h_channels(block_idx, :);
+                csi_features = [real(h_current), imag(h_current)];  % Separate I/Q
             else
-                csi = zeros(1, ch_taps);
+                csi_features = zeros(1, ch_taps*2);
             end
             
-            % Combine all features
-            x(i, :) = [win_features, past_symbols', csi];
+            % Combine all features (ALL REAL-VALUED)
+            x(i, :) = [win_features, past_symbols', csi_features];
             y(i) = symbol_indices(i);
         end
     end
     
+    % Remove invalid samples
     valid = any(x, 2);
     x = x(valid, :);
     y = y(valid, :);
+    
+    fprintf(' Done! Generated %d valid samples\n', sum(valid));
 end
 
 function channel_responses = generate_channel_realizations(num_blocks, ch_taps, max_delay, fading_type)

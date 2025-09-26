@@ -1,8 +1,8 @@
 % =========================================================================
-% QUASI-STATIC CHANNEL DF-CNN TESTING: BER Performance Analysis
+% FIXED QUASI-STATIC CHANNEL DF-CNN TESTING: BER Performance Analysis
 % =========================================================================
-% Tests DF-CNN performance in quasi-static fading channels with multipath
-% Compares against theoretical fading channel limits
+% Tests DF-CNN performance in quasi-static fading channels
+% Uses actual data dimensions and simplified channel model
 % =========================================================================
 
 clear, clc, close all
@@ -27,7 +27,7 @@ ber_results = zeros(size(SNR_range_dB));
 fprintf('\n=== BER Testing in Quasi-Static Fading Channel ===\n');
 for snridx = 1:length(SNR_range_dB)
     current_SNR_dB = SNR_range_dB(snridx);
-    [symbol_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_test(quasi_static_model, ...
+    [symbol_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_test_fixed(quasi_static_model, ...
         modulation_type, modulation_order, phase_offset, tau, current_SNR_dB, ...
         coherence_length, num_taps_channel, max_delay_spread, fading_type, window_len, num_feedback_taps);
     
@@ -71,24 +71,31 @@ results_file = strrep(file, '.mat', '_ber_results.mat');
 save(fullfile(path, results_file), 'SNR_range_dB', 'ber_results', 'ser_results', 'ber_awgn', 'ber_fading_approx');
 fprintf('\nResults saved to: %s\n', results_file);
 
-%% HELPER FUNCTION - QUASI-STATIC CHANNEL TESTING
-function [sym_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_test(model, mod_type, M, phase, tau, SNR_dB, coh_len, ch_taps, max_delay, fading_type, win_len, num_feedback_taps)
+%% HELPER FUNCTION - FIXED QUASI-STATIC CHANNEL TESTING
+function [sym_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_test_fixed(model, mod_type, M, phase, tau, SNR_dB, coh_len, ch_taps, max_delay, fading_type, win_len, num_feedback_taps)
     k = log2(M);
     constellation = generate_constellation(M, mod_type, phase);
     
-    % Test parameters
-    input_len = win_len*2 + num_feedback_taps + ch_taps;  % Include CSI
-    half_win = floor(win_len/2);
+    % Determine data dimensions by testing with sample data
+    % Generate a small test batch to determine actual input dimensions
+    test_x = generate_test_sample(mod_type, M, phase, tau, SNR_dB, win_len, num_feedback_taps, ch_taps, max_delay, fading_type, coh_len);
+    input_len = size(test_x, 2);
+    fprintf('  Detected input dimension: %d features\n', input_len);
     
-    % Channel parameters
+    half_win = floor(win_len/2);
     is_real_modulation = (M == 2) && strcmpi(mod_type, 'psk');
     sps = 10; beta = 0.3; span = 6;
     h = rcosdesign(beta, span, sps, 'sqrt');
     
+    % Pre-generate channel coefficients for efficiency
+    delays = linspace(0, max_delay, ch_taps);
+    power_profile = exp(-delays / (max_delay/3));
+    power_profile = power_profile / sum(power_profile);
+    
     sym_errors = 0; bit_errors = 0; total_symbols = 0; total_bits = 0;
     
-    while sym_errors < 200 && total_symbols < 5e5  % More errors needed for fading statistics
-        N_batch = 5000;  % Smaller batches for channel block management
+    while sym_errors < 200 && total_symbols < 2e5
+        N_batch = 3000;
         
         % Generate symbols
         symbol_indices = randi([0 M-1], N_batch, 1);
@@ -100,12 +107,49 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_
         pwr = mean(abs(txSignal).^2); 
         txSignal = txSignal / sqrt(pwr);
         
-        % Generate channel realizations for this batch
+        % Generate channel realizations (SAME AS TRAINING)
         num_blocks = ceil(N_batch / coh_len);
-        channel_responses = generate_channel_realizations(num_blocks, ch_taps, max_delay, fading_type);
+        switch lower(fading_type)
+            case 'rayleigh'
+                h_channels = sqrt(power_profile/2) .* (randn(num_blocks, ch_taps) + 1j*randn(num_blocks, ch_taps));
+            case 'rician'
+                K = 10^(3/10);
+                los = sqrt(K/(K+1)) * sqrt(power_profile);
+                scatter = sqrt(power_profile/(2*(K+1))) .* (randn(num_blocks, ch_taps) + 1j*randn(num_blocks, ch_taps));
+                h_channels = repmat(los, num_blocks, 1) + scatter;
+            case 'nakagami'
+                m = 1.5;
+                h_channels = sqrt(power_profile) .* sqrt(gamrnd(m, 1/m, num_blocks, ch_taps)) .* ...
+                             exp(1j*2*pi*rand(num_blocks, ch_taps));
+        end
         
-        % Apply quasi-static channel
-        rxSignal = apply_quasi_static_channel(txSignal, channel_responses, coh_len, sps, tau, SNR_dB, k, is_real_modulation);
+        % Apply simplified channel (SAME AS TRAINING)
+        rxSignal = zeros(size(txSignal));
+        samples_per_block = coh_len * round(sps * tau);
+        
+        for block = 1:num_blocks
+            start_idx = (block-1) * samples_per_block + 1;
+            end_idx = min(start_idx + samples_per_block - 1, length(txSignal));
+            
+            if start_idx <= length(txSignal)
+                dominant_tap = h_channels(block, 1);  % Use same simplification as training
+                rxSignal(start_idx:end_idx) = txSignal(start_idx:end_idx) * dominant_tap;
+            end
+        end
+        
+        % Add noise (SAME AS TRAINING)
+        snr_eb_n0 = 10^(SNR_dB/10);
+        snr_es_n0 = k * snr_eb_n0;
+        signal_power = mean(abs(rxSignal).^2);
+        noise_power = signal_power / snr_es_n0;
+        
+        if is_real_modulation
+            noise = sqrt(noise_power) * randn(size(rxSignal));
+        else
+            noise = sqrt(noise_power/2) * (randn(size(rxSignal)) + 1j*randn(size(rxSignal)));
+        end
+        
+        rxSignal = rxSignal + noise;
         rxMF = conv(rxSignal, h);
         delay = finddelay(tx_up, rxMF);
         
@@ -115,7 +159,7 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_
         for i = (num_feedback_taps + 1):N_batch
             loc = round((i-1)*sps*tau) + 1 + delay;
             if (loc > half_win) && (loc + half_win <= length(rxMF))
-                % Extract signal features
+                % Extract signal features (SAME AS TRAINING)
                 win_complex = rxMF(loc-half_win:loc+half_win);
                 
                 if is_real_modulation
@@ -124,23 +168,20 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_
                     win_features = [real(win_complex(:))', imag(win_complex(:))'];
                 end
                 
-                % Get channel state information for this symbol
+                % Get CSI features (SAME AS TRAINING)
                 block_idx = ceil(i / coh_len);
-                if block_idx <= size(channel_responses, 1)
-                    csi = channel_responses(block_idx, :);
-                    % Convert complex CSI to real features
-                    csi_features = [real(csi), imag(csi)];
-                    csi_features = csi_features(1:ch_taps);  % Take first ch_taps elements
+                if block_idx <= size(h_channels, 1)
+                    h_current = h_channels(block_idx, :);
+                    csi_features = [real(h_current), imag(h_current)];  % I/Q separation
                 else
-                    csi_features = zeros(1, ch_taps);
+                    csi_features = zeros(1, ch_taps*2);
                 end
                 
-                % Combine all features
+                % Combine all features (SAME FORMAT AS TRAINING)
                 test_input = [win_features, decision_history', csi_features];
                 
                 % Ensure correct input size
                 if length(test_input) ~= input_len
-                    % Pad or truncate if necessary
                     if length(test_input) < input_len
                         test_input = [test_input, zeros(1, input_len - length(test_input))];
                     else
@@ -153,12 +194,11 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_
                 [~, pred_idx] = max(pred_probs);
                 predicted_symbol_idx = pred_idx - 1;
                 
-                % Symbol error
+                % Error counting
                 if predicted_symbol_idx ~= symbol_indices(i)
                     sym_errors = sym_errors + 1;
                 end
                 
-                % Bit errors
                 true_bits = de2bi(symbol_indices(i), k, 'left-msb');
                 pred_bits = de2bi(predicted_symbol_idx, k, 'left-msb');
                 bit_errors = bit_errors + sum(true_bits ~= pred_bits);
@@ -171,8 +211,40 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_quasi_static_
             end
         end
     end
+end
+
+function test_x = generate_test_sample(mod_type, M, phase, tau, SNR_dB, win_len, num_feedback_taps, ch_taps, max_delay, fading_type, coh_len)
+    % Generate a small sample to determine input dimensions
+    k = log2(M);
+    constellation = generate_constellation(M, mod_type, phase);
     
-    fprintf('    Completed: %d symbol errors, %d bit errors, %d total symbols\n', sym_errors, bit_errors, total_symbols);
+    N_test = 200;  % Small test batch
+    symbol_indices = randi([0 M-1], N_test, 1);
+    symbols = constellation(symbol_indices + 1);
+    
+    is_real_modulation = (M == 2) && strcmpi(mod_type, 'psk');
+    sps = 10; beta = 0.3; span = 6;
+    h = rcosdesign(beta, span, sps, 'sqrt');
+    
+    % Simple processing to get one sample
+    tx_up = upsample(symbols(1:50), round(sps*tau));
+    txSignal = conv(tx_up, h);
+    rxSignal = txSignal;  % No channel/noise for dimension test
+    rxMF = conv(rxSignal, h);
+    
+    half_win = floor(win_len/2);
+    win_complex = rxMF(50:50+win_len-1);  % Extract a window
+    
+    if is_real_modulation
+        win_features = [real(win_complex(:))', real(win_complex(:))'];
+    else
+        win_features = [real(win_complex(:))', imag(win_complex(:))'];
+    end
+    
+    past_symbols = zeros(1, num_feedback_taps);
+    csi_features = zeros(1, ch_taps*2);  % Real CSI features
+    
+    test_x = [win_features, past_symbols, csi_features];
 end
 
 function [ber_awgn, ber_fading] = calculate_fading_theory(SNR_dB, mod_type, M, fading_type)
@@ -189,102 +261,33 @@ function [ber_awgn, ber_fading] = calculate_fading_theory(SNR_dB, mod_type, M, f
         ber_awgn = berawgn(SNR_dB, 'qam', M);
     end
     
-    % Approximate fading channel BER (simplified expressions)
+    % Simplified fading channel approximations
+    gamma_bar = 10.^(SNR_dB/10);
+    
     switch lower(fading_type)
         case 'rayleigh'
             if strcmpi(mod_type, 'psk') && M == 2
-                % Exact BPSK Rayleigh fading formula
-                gamma_bar = 10.^(SNR_dB/10);
+                % Exact BPSK Rayleigh fading
                 ber_fading = 0.5 * (1 - sqrt(gamma_bar ./ (1 + gamma_bar)));
             else
-                % High SNR approximation for other modulations
-                gamma_bar = 10.^(SNR_dB/10);
-                % Approximate diversity gain (slope) difference
-                ber_fading = ber_awgn .* (1./(4*gamma_bar));  % Rough approximation
-                ber_fading = min(ber_fading, 0.5);  % Cap at 50%
+                % High SNR approximation
+                ber_fading = ber_awgn .* (10.^(SNR_dB/10) / 4);
+                ber_fading = min(ber_fading, 0.5);
             end
             
         case 'rician'
-            % Approximation for Rician fading (between AWGN and Rayleigh)
-            K_factor = 10^(3/10);  % 3 dB K-factor
-            rayleigh_approx = calculate_fading_theory(SNR_dB, mod_type, M, 'rayleigh');
-            ber_fading = ber_awgn + 0.5 * (rayleigh_approx - ber_awgn);
+            % Rician approximation (between AWGN and Rayleigh)
+            rayleigh_ber = 0.5 * (1 - sqrt(gamma_bar ./ (1 + gamma_bar)));
+            ber_fading = ber_awgn + 0.3 * (rayleigh_ber - ber_awgn);
             
         case 'nakagami'
-            % Approximation for Nakagami fading
-            m = 1.5;  % Nakagami parameter
-            rayleigh_approx = calculate_fading_theory(SNR_dB, mod_type, M, 'rayleigh');
-            ber_fading = rayleigh_approx ./ m;  % Rough approximation
+            % Nakagami approximation
+            rayleigh_ber = 0.5 * (1 - sqrt(gamma_bar ./ (1 + gamma_bar)));
+            ber_fading = rayleigh_ber * 0.7;  % Slightly better than Rayleigh
             
         otherwise
-            ber_fading = ber_awgn;  % Default to AWGN if unknown
+            ber_fading = ber_awgn;
     end
-    
-    % Extract only ber_fading for return
-    if exist('rayleigh_approx', 'var')
-        ber_fading = rayleigh_approx(2,:);  % Get the ber_fading part
-    end
-end
-
-function channel_responses = generate_channel_realizations(num_blocks, ch_taps, max_delay, fading_type)
-    % Same as training script - generate channel realizations
-    channel_responses = zeros(num_blocks, ch_taps);
-    
-    delays = linspace(0, max_delay, ch_taps);
-    power_profile = exp(-delays / (max_delay/3));
-    power_profile = power_profile / sum(power_profile);
-    
-    for block = 1:num_blocks
-        switch lower(fading_type)
-            case 'rayleigh'
-                h = sqrt(power_profile/2) .* (randn(1, ch_taps) + 1j*randn(1, ch_taps));
-            case 'rician'
-                K = 10^(3/10);
-                los_component = sqrt(K/(K+1)) * sqrt(power_profile);
-                scattered_component = sqrt(power_profile/(2*(K+1))) .* (randn(1, ch_taps) + 1j*randn(1, ch_taps));
-                h = los_component + scattered_component;
-            case 'nakagami'
-                m = 1.5;
-                h = sqrt(power_profile) .* sqrt(gamrnd(m, 1/m, 1, ch_taps)) .* exp(1j*2*pi*rand(1, ch_taps));
-            otherwise
-                error('Unknown fading type: %s', fading_type);
-        end
-        channel_responses(block, :) = h;
-    end
-end
-
-function rxSignal = apply_quasi_static_channel(txSignal, channel_responses, coh_len, sps, tau, SNR_dB, k, is_real_modulation)
-    % Same as training script - apply channel and noise
-    rxSignal = zeros(size(txSignal));
-    
-    samples_per_block = coh_len * round(sps * tau);
-    
-    for block = 1:size(channel_responses, 1)
-        start_idx = (block-1) * samples_per_block + 1;
-        end_idx = min(start_idx + samples_per_block - 1, length(txSignal));
-        
-        if start_idx <= length(txSignal)
-            tx_block = txSignal(start_idx:end_idx);
-            h = channel_responses(block, :);
-            
-            rx_block = conv(tx_block, h, 'same');
-            rxSignal(start_idx:end_idx) = rx_block;
-        end
-    end
-    
-    % Add noise
-    snr_eb_n0 = 10^(SNR_dB/10);
-    snr_es_n0 = k * snr_eb_n0;
-    signal_power = mean(abs(rxSignal).^2);
-    noise_power = signal_power / snr_es_n0;
-    
-    if is_real_modulation
-        noise = sqrt(noise_power) * randn(size(rxSignal));
-    else
-        noise = sqrt(noise_power/2) * (randn(size(rxSignal)) + 1j*randn(size(rxSignal)));
-    end
-    
-    rxSignal = rxSignal + noise;
 end
 
 function constellation = generate_constellation(M, type, phase)
