@@ -18,7 +18,7 @@ tau = 0.8;                  % Timing parameter
 coherence_length = 100;     % Symbols per coherence block
 num_taps_channel = 3;       % Number of multipath taps
 max_delay_spread = 2;       % Maximum delay spread in symbol periods
-fading_type = 'rayleigh';   % 'rayleigh', 'rician', or 'nakagami'
+fading_type = 'rician';   % 'rayleigh', 'rician', or 'nakagami'
 
 % Network parameters
 window_len = 31;

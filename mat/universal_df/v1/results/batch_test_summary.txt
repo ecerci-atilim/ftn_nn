@@ -1,0 +1,95 @@
+===============================================
+BATCH TESTING SUMMARY
+Date: 01-Oct-2025 01:03:47
+===============================================
+
+Model 1: simple_df_psk2_tau05_phase0p000.mat
+  Configuration: 2-PSK, tau=0.5, phase=0.00π
+  Testing time: 1.5 minutes
+  BER at 10dB: 1.4011e-03
+
+Model 2: simple_df_psk2_tau06_phase0p000.mat
+  Configuration: 2-PSK, tau=0.6, phase=0.00π
+  Testing time: 5.1 minutes
+  BER at 10dB: 2.0969e-04
+
+Model 3: simple_df_psk2_tau07_phase0p000.mat
+  Configuration: 2-PSK, tau=0.7, phase=0.00π
+  Testing time: 14.3 minutes
+  BER at 10dB: 6.5626e-05
+
+Model 4: simple_df_psk2_tau08_phase0p000.mat
+  Configuration: 2-PSK, tau=0.8, phase=0.00π
+  Testing time: 32.4 minutes
+  BER at 10dB: 1.9818e-06
+
+Model 5: simple_df_psk2_tau09_phase0p000.mat
+  Configuration: 2-PSK, tau=0.9, phase=0.00π
+  Testing time: 39.0 minutes
+  BER at 10dB: 0.0000e+00
+
+Model 6: simple_df_psk2_tau10_phase0p000.mat
+  Configuration: 2-PSK, tau=1.0, phase=0.00π
+  Testing time: 42.9 minutes
+  BER at 10dB: 0.0000e+00
+
+Model 7: simple_df_psk4_tau05_phase0p785.mat
+  Configuration: 4-PSK, tau=0.5, phase=0.25π
+  Testing time: 0.6 minutes
+  BER at 10dB: 7.5060e-03
+
+Model 8: simple_df_psk4_tau06_phase0p785.mat
+  Configuration: 4-PSK, tau=0.6, phase=0.25π
+  Testing time: 0.7 minutes
+  BER at 10dB: 4.2034e-03
+
+Model 9: simple_df_psk4_tau07_phase0p785.mat
+  Configuration: 4-PSK, tau=0.7, phase=0.25π
+  Testing time: 7.2 minutes
+  BER at 10dB: 1.0379e-04
+
+Model 10: simple_df_psk4_tau08_phase0p785.mat
+  Configuration: 4-PSK, tau=0.8, phase=0.25π
+  Testing time: 32.1 minutes
+  BER at 10dB: 7.9271e-06
+
+Model 11: simple_df_psk4_tau09_phase0p785.mat
+  Configuration: 4-PSK, tau=0.9, phase=0.25π
+  Testing time: 53.8 minutes
+  BER at 10dB: 0.0000e+00
+
+Model 12: simple_df_psk4_tau10_phase0p785.mat
+  Configuration: 4-PSK, tau=1.0, phase=0.25π
+  Testing time: 54.7 minutes
+  BER at 10dB: 0.0000e+00
+
+Model 13: simple_df_qam16_tau05_phase0p000.mat
+  Configuration: 16-QAM, tau=0.5, phase=0.00π
+  Testing time: 0.6 minutes
+  BER at 10dB: 3.1705e-01
+
+Model 14: simple_df_qam16_tau06_phase0p000.mat
+  Configuration: 16-QAM, tau=0.6, phase=0.00π
+  Testing time: 0.6 minutes
+  BER at 10dB: 2.2733e-01
+
+Model 15: simple_df_qam16_tau07_phase0p000.mat
+  Configuration: 16-QAM, tau=0.7, phase=0.00π
+  Testing time: 0.6 minutes
+  BER at 10dB: 8.4568e-02
+
+Model 16: simple_df_qam16_tau08_phase0p000.mat
+  Configuration: 16-QAM, tau=0.8, phase=0.00π
+  Testing time: 0.6 minutes
+  BER at 10dB: 2.5020e-03
+
+Model 17: simple_df_qam16_tau09_phase0p000.mat
+  Configuration: 16-QAM, tau=0.9, phase=0.00π
+  Testing time: 7.1 minutes
+  BER at 10dB: 5.3889e-05
+
+Model 18: simple_df_qam16_tau10_phase0p000.mat
+  Configuration: 16-QAM, tau=1.0, phase=0.00π
+  Testing time: 24.0 minutes
+  BER at 10dB: 8.9180e-06
+
