@@ -78,6 +78,7 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_universal_df_
     
     sym_errors = 0; bit_errors = 0; total_symbols = 0; total_bits = 0;
     sps=10; beta=0.3; span=6; h=rcosdesign(beta,span,sps,'sqrt');
+    h = h / norm(h);
     
     snr_eb_n0 = 10^(SNR_dB/10);
     snr_es_n0 = k * snr_eb_n0;
@@ -90,16 +91,13 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_universal_df_
         
         tx_up = upsample(symbols, round(sps*tau));
         txSignal = conv(tx_up, h);
-        pwr = mean(abs(txSignal).^2); 
-        txSignal = txSignal / sqrt(pwr);
         
-        signal_power = mean(abs(txSignal).^2);
-        noise_power = signal_power / snr_es_n0;
+        noise_variance = 1 / (round(sps*tau) * snr_es_n0);
         
         if is_real_modulation
-            noise = sqrt(noise_power) * randn(size(txSignal));
+            noise = sqrt(noise_variance) * randn(size(txSignal));
         else
-            noise = sqrt(noise_power/2) * (randn(size(txSignal)) + 1j*randn(size(txSignal)));
+            noise = sqrt(noise_variance/2) * (randn(size(txSignal)) + 1j*randn(size(txSignal)));
         end
         
         rxSignal = txSignal + noise;
