@@ -78,7 +78,7 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_universal_df_
     
     sym_errors = 0; bit_errors = 0; total_symbols = 0; total_bits = 0;
     sps=10; beta=0.3; span=6; h=rcosdesign(beta,span,sps,'sqrt');
-    h = h / norm(h);
+    h = h / sqrt(sum(h.^2));
     
     snr_eb_n0 = 10^(SNR_dB/10);
     snr_es_n0 = k * snr_eb_n0;
@@ -91,8 +91,10 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_universal_df_
         
         tx_up = upsample(symbols, round(sps*tau));
         txSignal = conv(tx_up, h);
-        
-        noise_variance = 1 / (round(sps*tau) * snr_es_n0);
+            
+        signal_power = mean(abs(txSignal).^2);
+        L = round(sps * tau);
+        noise_variance = (signal_power * L) / snr_es_n0;
         
         if is_real_modulation
             noise = sqrt(noise_variance) * randn(size(txSignal));
@@ -102,7 +104,7 @@ function [sym_errors, bit_errors, total_symbols, total_bits] = run_universal_df_
         
         rxSignal = txSignal + noise;
         rxMF = conv(rxSignal, h);
-        delay = finddelay(tx_up, rxMF);
+        delay = span * sps;
         
         decision_history = zeros(num_taps, 1);
         
