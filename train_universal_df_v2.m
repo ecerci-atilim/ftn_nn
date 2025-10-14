@@ -4,7 +4,7 @@ fprintf('--- PHASE 1: Setting up Universal DF-CNN Training ---\n');
 modulation_type = 'psk';
 modulation_order = 2;
 phase_offset = 0;
-tau = 1;
+tau = .9;
 window_len = 31;
 num_feedback_taps = 4;
 input_len = window_len * 2 + num_feedback_taps;
@@ -123,16 +123,13 @@ function [x, y] = generate_realistic_df_data(N, tau, SNR_dB, win_len, num_taps, 
     is_real_modulation = (M == 2) && strcmpi(mod_type, 'psk');
     
     sps=10; beta=0.3; span=6; h=rcosdesign(beta,span,sps,'sqrt');
-    h = h / sqrt(sum(h.^2));
+    h = h / norm(h);
     tx_up = upsample(symbols, round(sps*tau));
     txSignal = conv(tx_up, h);
-
-    signal_power = mean(abs(txSignal).^2);
-    L = round(sps * tau);
     
     snr_eb_n0 = 10^(SNR_dB/10);
     snr_es_n0 = k * snr_eb_n0;
-    noise_variance = L * signal_power / snr_es_n0;
+    noise_variance = 1 / (round(sps*tau) * snr_es_n0);
     
     if is_real_modulation
         noise = sqrt(noise_variance) * randn(size(txSignal));
@@ -142,7 +139,7 @@ function [x, y] = generate_realistic_df_data(N, tau, SNR_dB, win_len, num_taps, 
     
     rxSignal = txSignal + noise;
     rxMF = conv(rxSignal, h);
-    delay = span * sps;
+    delay = finddelay(tx_up, rxMF);
     
     x = zeros(N, win_len*2 + num_taps);
     y = zeros(N, 1);
