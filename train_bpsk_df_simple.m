@@ -1,17 +1,17 @@
-% çalışıyor
-
 clear; clc; close all;
 
-tau = 1;
+tau = .8;
 window_len = 31;
-SNR_train_dB = 5;
+num_feedback = 4;
+SNR_train_dB = 8;
 N_symbols = 80000;
+teacher_forcing_ratio = 0.5;
 
-input_size = window_len;
+input_size = window_len + num_feedback;
 
-fprintf('Training BPSK Equalizer (no DF) with tau=%.1f at SNR=%d dB\n', tau, SNR_train_dB);
+fprintf('Training BPSK DF Equalizer with tau=%.1f at SNR=%d dB (TF=%.1f)\n', tau, SNR_train_dB, teacher_forcing_ratio);
 
-[X_train, Y_train] = generate_bpsk_data(N_symbols, tau, SNR_train_dB, window_len);
+[X_train, Y_train] = generate_bpsk_df_data(N_symbols, tau, SNR_train_dB, window_len, num_feedback, teacher_forcing_ratio);
 
 fprintf('Generated %d training samples\n', size(X_train, 1));
 fprintf('  Class 0 (bit=0): %d samples\n', sum(Y_train==0));
@@ -58,11 +58,11 @@ val_accuracy = mean(val_pred_class == double(Y_val)) * 100;
 fprintf('Final validation accuracy: %.2f%%\n', val_accuracy);
 
 if ~exist('mat/bpsk_simple', 'dir'), mkdir('mat/bpsk_simple'); end
-fname = sprintf('mat/bpsk_simple/bpsk_tau%02d.mat', tau*10);
-save(fname, 'net', 'tau', 'window_len', 'input_size');
+fname = sprintf('mat/bpsk_simple/bpsk_df_tau%02d.mat', tau*10);
+save(fname, 'net', 'tau', 'window_len', 'num_feedback', 'input_size');
 fprintf('Model saved: %s\n', fname);
 
-function [X, Y] = generate_bpsk_data(N, tau, SNR_dB, win_len)
+function [X, Y] = generate_bpsk_df_data(N, tau, SNR_dB, win_len, num_fb, tf_ratio)
     sps = 10;
     span = 6;
     h = rcosdesign(0.3, span, sps, 'sqrt');
@@ -81,21 +81,30 @@ function [X, Y] = generate_bpsk_data(N, tau, SNR_dB, win_len)
     
     rx = conv(rx, h);
     
-    delay = span * sps;
+    delay = span * sps + 1;
     
     half_win = floor(win_len/2);
-    X = zeros(N, win_len);
+    X = zeros(N, win_len + num_fb);
     Y = zeros(N, 1);
     
-    for i = 1:N
+    decision_history = zeros(num_fb, 1);
+    
+    for i = (num_fb+1):N
         idx = (i-1)*round(sps*tau) + 1 + delay;
         
         if idx > half_win && idx + half_win <= length(rx)
             win = rx(idx-half_win:idx+half_win);
-            features = real(win(:))';
+            features = [real(win(:))', decision_history'];
             
             X(i, :) = features;
             Y(i) = bits(i);
+            
+            % if rand() < tf_ratio
+            %     decision_history = [bits(i); decision_history(1:end-1)];
+            % else
+            %     pred_bit = round(rand());
+            %     decision_history = [pred_bit; decision_history(1:end-1)];
+            % end
         end
     end
     
