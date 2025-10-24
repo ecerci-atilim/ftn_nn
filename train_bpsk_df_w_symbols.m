@@ -1,6 +1,6 @@
 clear; clc; close all;
 
-tau = .9;
+tau = .5;
 window_len = 31;
 num_feedback = 4;
 num_past_future_symbols = 3; % New parameter: number of past/future symbols to include

@@ -2,7 +2,7 @@
 
 clear; clc; close all;
 
-tau = .9;
+tau = .5;
 window_len = 31;
 SNR_train_dB = 5;
 N_symbols = 80000;
