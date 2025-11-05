@@ -23,9 +23,9 @@ hh = conv(h, h);
 for i = 1 : 2
     % b = [randi([0, 1], 1, floor(N/2)), 1, randi([0, 1], 1, floor(N/2))];
     if i == 1
-        b = [0 0 0 1 0 1 1 1 1 1 1];
+        b = [0 1 1 0 1 0 1 1 0 1 0];
     else
-        b = [0 0 0 1 0 0 1 1 1 1 1];
+        b = [0 1 1 0 1 1 1 1 0 1 0];
     end
     m = 1-2*b;
     txus = upsample(m, tau*sps);
