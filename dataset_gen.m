@@ -1,10 +1,11 @@
-clear, clc
+clear; clc; close all;
 
 K = 3;
 N = 15;
 dataset_size = 80000;
 tau = 0.5;
 SNR_dB = 5;
+use_zero_padding = true;
 
 window_len = 2*N + 1;
 
@@ -40,21 +41,50 @@ valid_count = 0;
 for i = 1:dataset_size
     current_symbol_idx = (i-1)*symbol_spacing_samples + 1 + delay_system;
     
-    past_symbol_indices = current_symbol_idx - (1:K) * symbol_spacing_samples;
+    past_symbol_indices = current_symbol_idx - (K:-1:1) * symbol_spacing_samples;
     future_symbol_indices = current_symbol_idx + (1:K) * symbol_spacing_samples;
     
-    all_relevant_indices = [past_symbol_indices, current_symbol_idx-half_win:current_symbol_idx+half_win, future_symbol_indices];
+    win_start = current_symbol_idx - half_win;
+    win_end = current_symbol_idx + half_win;
     
-    if min(all_relevant_indices) >= 1 && max(all_relevant_indices) <= length(rx)
-        past_samples = real(rx(past_symbol_indices));
-        win_samples = real(rx(current_symbol_idx-half_win:current_symbol_idx+half_win));
-        future_samples = real(rx(future_symbol_indices));
+    if use_zero_padding
+        past_samples = zeros(K, 1);
+        for p = 1:K
+            symbol_idx = i - (K - p + 1);
+            if symbol_idx >= 1
+                past_samples(p) = real(rx(past_symbol_indices(p)));
+            end
+        end
+        
+        win_samples = real(rx(win_start:win_end));
+        
+        future_samples = zeros(K, 1);
+        for f = 1:K
+            symbol_idx = i + f;
+            if symbol_idx <= dataset_size
+                future_samples(f) = real(rx(future_symbol_indices(f)));
+            end
+        end
         
         features = [past_samples; win_samples; future_samples];
         
         valid_count = valid_count + 1;
         X(valid_count, :) = features(:)';
         Y(valid_count) = symbols(i);
+    else
+        all_relevant_indices = [past_symbol_indices, win_start:win_end, future_symbol_indices];
+        
+        if min(all_relevant_indices) >= 1 && max(all_relevant_indices) <= length(rx)
+            past_samples = real(rx(past_symbol_indices));
+            win_samples = real(rx(win_start:win_end));
+            future_samples = real(rx(future_symbol_indices));
+            
+            features = [past_samples; win_samples; future_samples];
+            
+            valid_count = valid_count + 1;
+            X(valid_count, :) = features(:)';
+            Y(valid_count) = symbols(i);
+        end
     end
 end
 
@@ -62,7 +92,7 @@ X = X(1:valid_count, :);
 Y = Y(1:valid_count);
 
 if ~exist('datasets', 'dir')
-    mkdir('datasets')
+    mkdir('datasets');
 end
 
 tau_str = strrep(num2str(tau), '.', '');
@@ -72,6 +102,6 @@ input_filename = sprintf('datasets/input_data_K%d_N%d_tau%s_SNR%d_size%d.csv', K
 writematrix(Y, gt_filename);
 writematrix(X, input_filename);
 
-fprintf('Ground truth saved: %s\n', gt_filename)
-fprintf('Input data saved: %s\n', input_filename)
-fprintf('Total valid samples: %d\n', valid_count)
+fprintf('Ground truth saved: %s\n', gt_filename);
+fprintf('Input data saved: %s\n', input_filename);
+fprintf('Total valid samples: %d\n', valid_count);
