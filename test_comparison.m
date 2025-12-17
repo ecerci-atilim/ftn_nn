@@ -1,224 +1,217 @@
 clear; clc; close all;
 
 [file, path] = uigetfile('mat/comparison/*.mat');
-if isequal(file, 0), error('No file selected'); end
+if isequal(file, 0), error('No file'); end
 load(fullfile(path, file));
 
-fprintf('=== Comparing Four Approaches for τ=%.1f ===\n\n', tau);
+fprintf('=== Testing τ=%.1f ===\n\n', tau);
 
-SNR_range = 0:2:12;
-ber1 = zeros(size(SNR_range));
-ber2 = zeros(size(SNR_range));
-ber3 = zeros(size(SNR_range));
-ber4 = zeros(size(SNR_range));
-ber_threshold = zeros(size(SNR_range));
+SNR_range = 0:2:14;
+n_snr = length(SNR_range);
+
+ber = zeros(5, n_snr);  % 5 model
+ber_th = zeros(1, n_snr);
 ber_theory = qfunc(sqrt(2 * 10.^(SNR_range/10)));
 
-min_errors = 100;
+min_err = 100;
 max_bits = 1e6;
 
-fprintf('Model 1: Window ONLY (31 samples, no DF)\n');
-for idx = 1:length(SNR_range)
-    [err, total] = test_model(net1, tau, SNR_range(idx), window_len, 0, min_errors, max_bits);
-    ber1(idx) = err / total;
-    fprintf('  SNR=%2d dB: BER=%.4e\n', SNR_range(idx), ber1(idx));
+models = {net1, net2, net3, net4, net5};
+win_lens = [window_len, window_len, 1, 1, window_len];
+num_fbs = [0, num_feedback, num_feedback, 0, num_feedback];
+num_nbs = [0, 0, 0, 0, num_neighbor];
+names = {'Window', 'Window+DF', 'Single+DF', 'Single', 'Full'};
+
+for m = 1:5
+    fprintf('Model %d: %s\n', m, names{m});
+    for s = 1:n_snr
+        [err, total] = test_model(models{m}, tau, SNR_range(s), ...
+            win_lens(m), num_fbs(m), num_nbs(m), min_err, max_bits);
+        ber(m, s) = err / total;
+        fprintf('  %2d dB: %.2e\n', SNR_range(s), ber(m, s));
+    end
 end
 
-fprintf('\nModel 2: Window + DF (31 samples + 4 DF taps)\n');
-for idx = 1:length(SNR_range)
-    [err, total] = test_model(net2, tau, SNR_range(idx), window_len, num_feedback, min_errors, max_bits);
-    ber2(idx) = err / total;
-    fprintf('  SNR=%2d dB: BER=%.4e\n', SNR_range(idx), ber2(idx));
+fprintf('\nThreshold\n');
+for s = 1:n_snr
+    [err, total] = test_threshold(tau, SNR_range(s), min_err, max_bits);
+    ber_th(s) = err / total;
+    fprintf('  %2d dB: %.2e\n', SNR_range(s), ber_th(s));
 end
 
-fprintf('\nModel 3: Single Sample + DF (1 sample + 4 DF taps)\n');
-for idx = 1:length(SNR_range)
-    [err, total] = test_model(net3, tau, SNR_range(idx), 1, num_feedback, min_errors, max_bits);
-    ber3(idx) = err / total;
-    fprintf('  SNR=%2d dB: BER=%.4e\n', SNR_range(idx), ber3(idx));
-end
-
-fprintf('\nModel 4: Single Sample ONLY (1 sample, no DF)\n');
-for idx = 1:length(SNR_range)
-    [err, total] = test_model(net4, tau, SNR_range(idx), 1, 0, min_errors, max_bits);
-    ber4(idx) = err / total;
-    fprintf('  SNR=%2d dB: BER=%.4e\n', SNR_range(idx), ber4(idx));
-end
-
-fprintf('\nThreshold (uncoded FTN baseline)\n');
-for idx = 1:length(SNR_range)
-    [~, total, err_th] = test_threshold(tau, SNR_range(idx), min_errors, max_bits);
-    ber_threshold(idx) = err_th / total;
-    fprintf('  SNR=%2d dB: BER=%.4e\n', SNR_range(idx), ber_threshold(idx));
-end
-
-figure('Position', [100 100 1000 600]);
-semilogy(SNR_range, ber_theory, 'k--', 'LineWidth', 2.5, 'DisplayName', 'Theory (AWGN)');
+%% Plot
+figure('Position', [100 100 900 550]);
+semilogy(SNR_range, ber_theory, 'k--', 'LineWidth', 2, 'DisplayName', 'AWGN Theory');
 hold on;
-semilogy(SNR_range, ber_threshold, 'r-^', 'LineWidth', 1.5, 'MarkerSize', 6, 'DisplayName', 'Threshold (uncoded FTN)');
-semilogy(SNR_range, ber4, 'c-x', 'LineWidth', 1.5, 'MarkerSize', 7, 'DisplayName', 'Single ONLY (1 input)');
-semilogy(SNR_range, ber3, 'm-d', 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', 'Single + DF (5 inputs)');
-semilogy(SNR_range, ber1, 'b-o', 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', 'Window ONLY (31 inputs)');
-semilogy(SNR_range, ber2, 'g-s', 'LineWidth', 2.5, 'MarkerSize', 8, 'DisplayName', 'Window + DF (35 inputs) - BEST');
+semilogy(SNR_range, ber_th, 'r-^', 'LineWidth', 1.5, 'DisplayName', 'Threshold');
+semilogy(SNR_range, ber(4,:), 'c-x', 'LineWidth', 1.5, 'DisplayName', 'Single');
+semilogy(SNR_range, ber(3,:), 'm-d', 'LineWidth', 1.5, 'DisplayName', 'Single+DF');
+semilogy(SNR_range, ber(1,:), 'b-o', 'LineWidth', 2, 'DisplayName', 'Window');
+semilogy(SNR_range, ber(2,:), 'g-s', 'LineWidth', 2, 'DisplayName', 'Window+DF');
+semilogy(SNR_range, ber(5,:), 'k-p', 'LineWidth', 2.5, 'MarkerSize', 9, 'DisplayName', 'Full');
 grid on;
-xlabel('E_b/N_0 (dB)', 'FontSize', 12);
-ylabel('BER', 'FontSize', 12);
-legend('Location', 'southwest', 'FontSize', 10);
-title(sprintf('Comparison: Window vs DF Analysis (τ=%.1f)', tau), 'FontSize', 13);
+xlabel('E_b/N_0 (dB)'); ylabel('BER');
+legend('Location', 'southwest');
+title(sprintf('FTN Detection Comparison (τ=%.1f)', tau));
 ylim([1e-6 0.5]);
 
-fprintf('\n=== Gain Analysis at 10 dB ===\n');
-fprintf('Single ONLY:     %.4e  (baseline - worst)\n', ber4(SNR_range==10));
-fprintf('Single + DF:     %.4e  (%.1fx better - DF helps!)\n', ber3(SNR_range==10), ber4(SNR_range==10)/ber3(SNR_range==10));
-fprintf('Window ONLY:     %.4e  (%.1fx better - window helps!)\n', ber1(SNR_range==10), ber4(SNR_range==10)/ber1(SNR_range==10));
-fprintf('Window + DF:     %.4e  (%.1fx better - BEST!)\n', ber2(SNR_range==10), ber4(SNR_range==10)/ber2(SNR_range==10));
-fprintf('\n=== Key Comparisons ===\n');
-fprintf('Window value: Window ONLY vs Single ONLY = %.1fx gain\n', ber4(SNR_range==10)/ber1(SNR_range==10));
-fprintf('DF value:     Single+DF vs Single ONLY = %.1fx gain\n', ber4(SNR_range==10)/ber3(SNR_range==10));
-fprintf('Combined:     Window+DF vs Single+DF = %.1fx gain (proves window matters!)\n', ber3(SNR_range==10)/ber2(SNR_range==10));
-fprintf('\nConclusion: Window+DF provides %.1fx gain over professor''s Single+DF approach\n', ber3(SNR_range==10)/ber2(SNR_range==10));
+%% Analysis
+idx10 = find(SNR_range == 10);
+if ~isempty(idx10)
+    fprintf('\n=== 10 dB Analysis ===\n');
+    base = ber(4, idx10);
+    for m = 1:5
+        gain = base / ber(m, idx10);
+        fprintf('%s: %.2e (%.1fx)\n', names{m}, ber(m, idx10), gain);
+    end
+    fprintf('\nWindow value: %.1fx\n', ber(4,idx10)/ber(1,idx10));
+    fprintf('DF value: %.1fx\n', ber(4,idx10)/ber(3,idx10));
+    fprintf('Window+DF vs Single+DF: %.1fx\n', ber(3,idx10)/ber(2,idx10));
+end
 
-if ~exist(fullfile(path, 'results'), 'dir'), mkdir(fullfile(path, 'results')); end
-save(fullfile(path, 'results', strrep(file, '.mat', '_results.mat')), ...
-    'SNR_range', 'ber1', 'ber2', 'ber3', 'ber4', 'ber_threshold', 'ber_theory');
+%% Save
+save(fullfile(path, strrep(file, '.mat', '_results.mat')), ...
+    'SNR_range', 'ber', 'ber_th', 'ber_theory', 'names', 'tau');
 
-function [errors, total_bits] = test_model(net, tau, SNR_dB, win_len, num_fb, min_err, max_bits)
-    sps = 10;
-    span = 6;
+%% Functions
+function [errors, total] = test_model(net, tau, SNR_dB, win_len, num_fb, num_nb, min_err, max_bits)
+    sps = 10; span = 6;
     h = rcosdesign(0.3, span, sps, 'sqrt');
     h = h / norm(h);
     
-    delay = span * sps + 1;
-    half_win = floor(win_len/2);
+    step = round(sps * tau);
+    delay = span * sps;
+    half_win = floor(win_len / 2);
     
     errors = 0;
-    total_bits = 0;
-    decision_history = zeros(num_fb, 1);
+    total = 0;
     
-    while errors < min_err && total_bits < max_bits
+    while errors < min_err && total < max_bits
         N = 50000;
         bits = randi([0 1], N, 1);
-        symbols = 2*bits - 1;
+        symbols = 2 * bits - 1;
         
-        tx = upsample(symbols, round(sps*tau));
-        tx = conv(tx, h);
-        
-        EbN0_linear = 10^(SNR_dB/10);
-        noise_var = 1 / (2 * EbN0_linear);
-        noise = sqrt(noise_var) * randn(size(tx));
-        rx = tx + noise;
+        tx = conv(upsample(symbols, step), h);
+        noise_var = 1 / (2 * 10^(SNR_dB/10));
+        rx = tx + sqrt(noise_var) * randn(size(tx));
         rx = conv(rx, h);
+        rx = rx / std(rx);
         
-        start_idx = max(num_fb+1, 1);
+        df_history = zeros(num_fb, 1);
+        start_idx = max([num_fb + 1, num_nb + 1, 1]);
         
         if num_fb > 0
+            % Sequential (DF needs previous decisions)
             for i = start_idx:N
-                idx = (i-1)*round(sps*tau) + 1 + delay;
+                center = (i - 1) * step + 1 + delay;
+                if center - half_win < 1 || center + half_win > length(rx), continue; end
                 
-                if idx > half_win && idx + half_win <= length(rx)
-                    if win_len == 1
-                        win_features = real(rx(idx));
-                    else
-                        win = rx(idx-half_win:idx+half_win);
-                        win_features = real(win(:))';
-                    end
-                    
-                    features = [win_features, decision_history'];
-                    
-                    probs = predict(net, features);
-                    [~, pred_class] = max(probs);
-                    pred_bit = pred_class - 1;
-                    
-                    if pred_bit ~= bits(i)
-                        errors = errors + 1;
-                    end
-                    total_bits = total_bits + 1;
-                    
-                    decision_history = [pred_bit; decision_history(1:end-1)];
-                    
-                    if errors >= min_err || total_bits >= max_bits
-                        return;
-                    end
-                end
+                feat = build_features(rx, center, half_win, win_len, step, num_nb, df_history);
+                
+                probs = predict(net, feat);
+                [~, pred_class] = max(probs);
+                pred_bit = pred_class - 1;
+                pred_sym = 2 * pred_bit - 1;
+                
+                if pred_bit ~= bits(i), errors = errors + 1; end
+                total = total + 1;
+                
+                df_history = [pred_sym; df_history(1:end-1)];
+                
+                if errors >= min_err || total >= max_bits, return; end
             end
         else
-            feature_buffer = [];
-            bit_buffer = [];
+            % Batch (no DF)
+            feat_buf = [];
+            bit_buf = [];
             
             for i = start_idx:N
-                idx = (i-1)*round(sps*tau) + 1 + delay;
+                center = (i - 1) * step + 1 + delay;
+                if center - half_win < 1 || center + half_win > length(rx), continue; end
                 
-                if idx > half_win && idx + half_win <= length(rx)
-                    if win_len == 1
-                        win_features = real(rx(idx));
-                    else
-                        win = rx(idx-half_win:idx+half_win);
-                        win_features = real(win(:))';
-                    end
+                feat = build_features(rx, center, half_win, win_len, step, num_nb, []);
+                feat_buf = [feat_buf; feat];
+                bit_buf = [bit_buf; bits(i)];
+                
+                if size(feat_buf, 1) >= 1000 || i == N
+                    probs = predict(net, feat_buf);
+                    [~, pred_classes] = max(probs, [], 2);
+                    pred_bits = pred_classes - 1;
                     
-                    feature_buffer = [feature_buffer; win_features];
-                    bit_buffer = [bit_buffer; bits(i)];
+                    errors = errors + sum(pred_bits ~= bit_buf);
+                    total = total + length(bit_buf);
                     
-                    if size(feature_buffer, 1) >= 1000 || i == N
-                        probs = predict(net, feature_buffer);
-                        [~, pred_classes] = max(probs, [], 2);
-                        pred_bits = pred_classes - 1;
-                        
-                        for j = 1:length(pred_bits)
-                            if pred_bits(j) ~= bit_buffer(j)
-                                errors = errors + 1;
-                            end
-                            total_bits = total_bits + 1;
-                            
-                            if errors >= min_err || total_bits >= max_bits
-                                return;
-                            end
-                        end
-                        
-                        feature_buffer = [];
-                        bit_buffer = [];
-                    end
+                    if errors >= min_err || total >= max_bits, return; end
+                    
+                    feat_buf = [];
+                    bit_buf = [];
                 end
             end
         end
     end
 end
 
-function [total_bits, total_bits_out, errors] = test_threshold(tau, SNR_dB, min_err, max_bits)
-    sps = 10;
-    span = 6;
+function feat = build_features(rx, center, half_win, win_len, step, num_nb, df_history)
+    % Window
+    if win_len == 1
+        win_feat = rx(center);
+    else
+        win_feat = rx(center - half_win : center + half_win)';
+    end
+    
+    % Neighbors
+    if num_nb > 0
+        nb_feat = zeros(1, 2 * num_nb);
+        for k = 1:num_nb
+            left_idx = center - k * step;
+            right_idx = center + k * step;
+            if left_idx > 0, nb_feat(k) = rx(left_idx); end
+            if right_idx <= length(rx), nb_feat(num_nb + k) = rx(right_idx); end
+        end
+    else
+        nb_feat = [];
+    end
+    
+    % DF
+    if ~isempty(df_history)
+        df_feat = df_history';
+    else
+        df_feat = [];
+    end
+    
+    feat = [win_feat, nb_feat, df_feat];
+end
+
+function [errors, total] = test_threshold(tau, SNR_dB, min_err, max_bits)
+    sps = 10; span = 6;
     h = rcosdesign(0.3, span, sps, 'sqrt');
     h = h / norm(h);
     
-    delay = span * sps + 1;
+    step = round(sps * tau);
+    delay = span * sps;
+    
     errors = 0;
-    total_bits_out = 0;
+    total = 0;
     
-    N = 50000;
-    bits = randi([0 1], N, 1);
-    symbols = 2*bits - 1;
-    
-    tx = upsample(symbols, round(sps*tau));
-    tx = conv(tx, h);
-    
-    EbN0_linear = 10^(SNR_dB/10);
-    noise_var = 1 / (2 * EbN0_linear);
-    noise = sqrt(noise_var) * randn(size(tx));
-    rx = tx + noise;
-    rx = conv(rx, h);
-    
-    for i = 1:N
-        idx = (i-1)*round(sps*tau) + 1 + delay;
-        if idx > 0 && idx <= length(rx)
-            pred_bit = (real(rx(idx)) > 0);
-            if pred_bit ~= bits(i)
-                errors = errors + 1;
-            end
-            total_bits_out = total_bits_out + 1;
-            if errors >= min_err
-                break;
-            end
+    while errors < min_err && total < max_bits
+        N = 50000;
+        bits = randi([0 1], N, 1);
+        symbols = 2 * bits - 1;
+        
+        tx = conv(upsample(symbols, step), h);
+        noise_var = 1 / (2 * 10^(SNR_dB/10));
+        rx = tx + sqrt(noise_var) * randn(size(tx));
+        rx = conv(rx, h);
+        
+        for i = 1:N
+            idx = (i - 1) * step + 1 + delay;
+            if idx < 1 || idx > length(rx), continue; end
+            
+            pred_bit = real(rx(idx)) > 0;
+            if pred_bit ~= bits(i), errors = errors + 1; end
+            total = total + 1;
+            
+            if errors >= min_err || total >= max_bits, return; end
         end
     end
-    total_bits = total_bits_out;
 end

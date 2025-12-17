@@ -21,7 +21,12 @@ h = rcosdesign(rolloff, span, sps, 'sqrt');
 hh = conv(h, h);
 
 for i = 1 : 2
-    b = [randi([0, 1], 1, floor(N/2)), 1, randi([0, 1], 1, floor(N/2))];
+    % b = [randi([0, 1], 1, floor(N/2)), 1, randi([0, 1], 1, floor(N/2))];
+    if i == 1
+        b = [0 1 1 0 1 0 1 1 0 1 0];
+    else
+        b = [0 1 1 0 1 1 1 1 0 1 0];
+    end
     m = 1-2*b;
     txus = upsample(m, tau*sps);
     txsig = conv(txus, h);
@@ -38,9 +43,8 @@ for i = 1 : 2
     title(sprintf("%d",b))
     
     pdom = ploc-tau*sps/2:ploc+tau*sps/2;
-    pdom = [pdom, ploc-3*tau*sps, ploc-2*tau*sps, ploc-3*tau*sps]
     pran = rxmf(pdom);
-    plot(pdom, pran, 'r*')
+    plot(pdom, pran, 'Color', 'r')
     plot(ploc, rxmf(ploc), 'g*')
 
     legend('Signal', 'Samples around symbol', 'Symbol')
