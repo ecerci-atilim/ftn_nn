@@ -1,86 +1,86 @@
 clear; clc; close all;
 
-[file, path] = uigetfile('mat/comparison/*.mat');
-if isequal(file, 0), error('No file'); end
-load(fullfile(path, file));
+[files, path] = uigetfile('mat/comparison/*.mat', 'MultiSelect', 'on');
+if isequal(files, 0), error('No file'); end
+if ischar(files), files = {files}; end  % tek dosya seçildiyse
 
-% Model seçimi
-names = {'Single', 'Single+DF', 'Neighbors', 'Neighbors+DF', 'Window', 'Window+DF', 'Full'};
-[sel, ok] = listdlg('ListString', names, 'SelectionMode', 'multiple', ...
-    'PromptString', 'Test edilecek modelleri seç:', 'ListSize', [200 150]);
-if ~ok, return; end
+fprintf('=== %d dosya seçildi ===\n\n', length(files));
 
-fprintf('=== Testing τ=%.1f ===\n', tau);
-fprintf('Seçilen modeller: %s\n\n', strjoin(names(sel), ', '));
-
-SNR_range = 0:2:14;
-n_snr = length(SNR_range);
-
-ber = nan(7, n_snr);
-ber_uncoded = zeros(1, n_snr);
-ber_theory = qfunc(sqrt(2 * 10.^(SNR_range/10)));
-
-min_err = 100;
-max_bits = 1e6;
-
-models = {net1, net2, net3, net4, net5, net6, net7};
-params = {
-    [1, 0, 0, false];
-    [1, num_feedback, 0, false];
-    [1, 0, num_neighbor, true];
-    [1, num_feedback, num_neighbor, true];
-    [window_len, 0, 0, false];
-    [window_len, num_feedback, 0, false];
-    [window_len, num_feedback, num_neighbor, false];
-};
-
-% Sadece seçilen modelleri test et
-for m = sel
-    fprintf('Model %d: %s\n', m, names{m});
-    p = params{m};
-    for s = 1:n_snr
-        [err, total] = test_model(models{m}, tau, SNR_range(s), ...
-            p{1}, p{2}, p{3}, p{4}, min_err, max_bits);
-        ber(m, s) = err / total;
-        fprintf('  %2d dB: %.2e\n', SNR_range(s), ber(m, s));
+for f = 1:length(files)
+    load(fullfile(path, files{f}));
+    fprintf('\n========== τ=%.1f (%d/%d) ==========\n\n', tau, f, length(files));
+    
+    SNR_range = 0:2:14;
+    n_snr = length(SNR_range);
+    
+    ber = zeros(7, n_snr);
+    ber_uncoded = zeros(1, n_snr);
+    ber_theory = qfunc(sqrt(2 * 10.^(SNR_range/10)));
+    
+    min_err = 100;
+    max_bits = 1e6;
+    
+    models = {net1, net2, net3, net4, net5, net6, net7};
+    names = {'Single', 'Single+DF', 'Neighbors', 'Neighbors+DF', 'Window', 'Window+DF', 'Full'};
+    params = {
+        {1, 0, 0, false};
+        {1, num_feedback, 0, false};
+        {1, 0, num_neighbor, true};
+        {1, num_feedback, num_neighbor, true};
+        {window_len, 0, 0, false};
+        {window_len, num_feedback, 0, false};
+        {window_len, num_feedback, num_neighbor, false};
+    };
+    
+    for m = 1:7
+        fprintf('Model %d: %s\n', m, names{m});
+        p = params{m};
+        for s = 1:n_snr
+            [err, total] = test_model(models{m}, tau, SNR_range(s), ...
+                p{1}, p{2}, p{3}, p{4}, min_err, max_bits);
+            ber(m, s) = err / total;
+            fprintf('  %2d dB: %.2e\n', SNR_range(s), ber(m, s));
+        end
     end
+    
+    fprintf('\nUncoded FTN\n');
+    for s = 1:n_snr
+        [err, total] = test_uncoded(tau, SNR_range(s), min_err, max_bits);
+        ber_uncoded(s) = err / total;
+        fprintf('  %2d dB: %.2e\n', SNR_range(s), ber_uncoded(s));
+    end
+    
+    % Plot
+    figure('Position', [100 + f*30, 100, 1000, 600]);
+    colors = {'c', 'c', 'm', 'm', 'b', 'g', 'k'};
+    markers = {'x', 'o', 'x', 'o', 's', 's', 'p'};
+    lines = {'-', '--', '-', '--', '-', '-', '-'};
+    linewidths = [1.5, 1.5, 1.5, 2, 1.5, 2, 2.5];
+    
+    semilogy(SNR_range, ber_theory, 'k--', 'LineWidth', 2, 'DisplayName', 'AWGN Theory');
+    hold on;
+    semilogy(SNR_range, ber_uncoded, 'r-^', 'LineWidth', 1.5, 'DisplayName', 'Uncoded FTN');
+    
+    for m = 1:7
+        semilogy(SNR_range, ber(m,:), [colors{m} lines{m} markers{m}], ...
+            'LineWidth', linewidths(m), 'MarkerSize', 7, 'DisplayName', names{m});
+    end
+    
+    grid on;
+    xlabel('E_b/N_0 (dB)', 'FontSize', 12);
+    ylabel('BER', 'FontSize', 12);
+    legend('Location', 'southwest', 'FontSize', 9);
+    title(sprintf('FTN Detection (τ = %.1f)', tau), 'FontSize', 13);
+    ylim([1e-6 0.5]);
+    
+    % Save
+    save(fullfile(path, strrep(files{f}, '.mat', '_results.mat')), ...
+        'SNR_range', 'ber', 'ber_uncoded', 'ber_theory', 'names', 'tau');
 end
 
-fprintf('\nUncoded FTN\n');
-for s = 1:n_snr
-    [err, total] = test_uncoded(tau, SNR_range(s), min_err, max_bits);
-    ber_uncoded(s) = err / total;
-    fprintf('  %2d dB: %.2e\n', SNR_range(s), ber_uncoded(s));
-end
+fprintf('\n=== Tamamlandı ===\n');
 
-%% Plot
-figure('Position', [100 100 1000 600]);
-colors = {'c', 'c', 'm', 'm', 'b', 'g', 'k'};
-markers = {'x', 'o', 'x', 'o', 's', 's', 'p'};
-lines = {'-', '--', '-', '--', '-', '-', '-'};
-linewidths = [1.5, 1.5, 1.5, 2, 1.5, 2, 2.5];
-
-semilogy(SNR_range, ber_theory, 'k--', 'LineWidth', 2, 'DisplayName', 'AWGN Theory');
-hold on;
-semilogy(SNR_range, ber_uncoded, 'r-^', 'LineWidth', 1.5, 'DisplayName', 'Uncoded FTN');
-
-for m = sel
-    semilogy(SNR_range, ber(m,:), [colors{m} lines{m} markers{m}], ...
-        'LineWidth', linewidths(m), 'MarkerSize', 7, 'DisplayName', names{m});
-end
-
-grid on;
-xlabel('E_b/N_0 (dB)', 'FontSize', 12);
-ylabel('BER', 'FontSize', 12);
-legend('Location', 'southwest', 'FontSize', 9);
-title(sprintf('FTN Detection Comparison (τ = %.1f)', tau), 'FontSize', 13);
-ylim([1e-6 0.5]);
-
-%% Save
-save(fullfile(path, strrep(file, '.mat', '_results.mat')), ...
-    'SNR_range', 'ber', 'ber_uncoded', 'ber_theory', 'names', 'tau', 'sel');
-
-%% Functions (aynı kalıyor)
+%% Functions
 function [errors, total] = test_model(net, tau, SNR_dB, win_len, num_fb, num_nb, neighbors_only, min_err, max_bits)
     sps = 10; span = 6;
     h = rcosdesign(0.3, span, sps, 'sqrt');
@@ -108,6 +108,7 @@ function [errors, total] = test_model(net, tau, SNR_dB, win_len, num_fb, num_nb,
         start_idx = max([num_fb + 1, num_nb + 1, 1]);
         
         if num_fb > 0
+            % Sequential
             for i = start_idx:N
                 center = (i - 1) * step + 1 + delay;
                 if center - half_win < 1 || center + half_win > length(rx), continue; end
@@ -128,6 +129,7 @@ function [errors, total] = test_model(net, tau, SNR_dB, win_len, num_fb, num_nb,
                 if errors >= min_err || total >= max_bits, return; end
             end
         else
+            % Batch
             feat_buf = [];
             bit_buf = [];
             
@@ -160,6 +162,7 @@ end
 
 function feat = build_features(rx, center, half_win, win_len, step, num_nb, df_history, neighbors_only)
     if neighbors_only
+        % Sadece sembol konumlarındaki örnekler
         win_feat = zeros(1, 1 + 2*num_nb);
         win_feat(1) = rx(center);
         for k = 1:num_nb
@@ -168,12 +171,14 @@ function feat = build_features(rx, center, half_win, win_len, step, num_nb, df_h
         end
         nb_feat = [];
     else
+        % Window
         if win_len == 1
             win_feat = rx(center);
         else
             win_feat = rx(center - half_win : center + half_win)';
         end
         
+        % Neighbors (Full model)
         if num_nb > 0
             nb_feat = zeros(1, 2 * num_nb);
             for k = 1:num_nb
@@ -185,6 +190,7 @@ function feat = build_features(rx, center, half_win, win_len, step, num_nb, df_h
         end
     end
     
+    % DF
     if ~isempty(df_history)
         df_feat = df_history';
     else

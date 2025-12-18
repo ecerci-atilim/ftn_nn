@@ -1,47 +1,58 @@
 clear; clc; close all;
 
-tau = 0.7;
+tau = 0.9;
 window_len = 31;
 num_feedback = 4;
-num_neighbor = 3;  % sağ-sol komşu sembol sayısı
+num_neighbor = 3;
 SNR_train_dB = 8;
 N_symbols = 100000;
-teacher_forcing_ratio = 0.7;  % 0.5'ten yükselttim
+teacher_forcing_ratio = 0.7;
 
-fprintf('=== Training Models for τ=%.1f ===\n\n', tau);
+fprintf('=== Training 7 Models for τ=%.1f ===\n\n', tau);
 
-% Model 1: Window only
-fprintf('Model 1: Window ONLY\n');
-[X1, Y1] = generate_data(N_symbols, tau, SNR_train_dB, window_len, 0, 0, 0);
+% Model 1: Single
+fprintf('Model 1: Single\n');
+[X1, Y1] = generate_data(N_symbols, tau, SNR_train_dB, 1, 0, 0, 0, false);
 net1 = train_model(X1, Y1);
 
-% Model 2: Window + DF
-fprintf('Model 2: Window + DF\n');
-[X2, Y2] = generate_data(N_symbols, tau, SNR_train_dB, window_len, num_feedback, teacher_forcing_ratio, 0);
+% Model 2: Single+DF
+fprintf('Model 2: Single+DF\n');
+[X2, Y2] = generate_data(N_symbols, tau, SNR_train_dB, 1, num_feedback, teacher_forcing_ratio, 0, false);
 net2 = train_model(X2, Y2);
 
-% Model 3: Single + DF (Hocanın yaklaşımı)
-fprintf('Model 3: Single + DF\n');
-[X3, Y3] = generate_data(N_symbols, tau, SNR_train_dB, 1, num_feedback, teacher_forcing_ratio, 0);
+% Model 3: Neighbors
+fprintf('Model 3: Neighbors\n');
+[X3, Y3] = generate_data(N_symbols, tau, SNR_train_dB, 1, 0, 0, num_neighbor, true);
 net3 = train_model(X3, Y3);
 
-% Model 4: Single only
-fprintf('Model 4: Single ONLY\n');
-[X4, Y4] = generate_data(N_symbols, tau, SNR_train_dB, 1, 0, 0, 0);
+% Model 4: Neighbors+DF
+fprintf('Model 4: Neighbors+DF\n');
+[X4, Y4] = generate_data(N_symbols, tau, SNR_train_dB, 1, num_feedback, teacher_forcing_ratio, num_neighbor, true);
 net4 = train_model(X4, Y4);
 
-% Model 5: Full model (Window + DF + Neighbors)
-fprintf('Model 5: Window + DF + Neighbors (FULL)\n');
-[X5, Y5] = generate_data(N_symbols, tau, SNR_train_dB, window_len, num_feedback, teacher_forcing_ratio, num_neighbor);
+% Model 5: Window
+fprintf('Model 5: Window\n');
+[X5, Y5] = generate_data(N_symbols, tau, SNR_train_dB, window_len, 0, 0, 0, false);
 net5 = train_model(X5, Y5);
+
+% Model 6: Window+DF
+fprintf('Model 6: Window+DF\n');
+[X6, Y6] = generate_data(N_symbols, tau, SNR_train_dB, window_len, num_feedback, teacher_forcing_ratio, 0, false);
+net6 = train_model(X6, Y6);
+
+% Model 7: Full
+fprintf('Model 7: Full\n');
+[X7, Y7] = generate_data(N_symbols, tau, SNR_train_dB, window_len, num_feedback, teacher_forcing_ratio, num_neighbor, false);
+net7 = train_model(X7, Y7);
 
 if ~exist('mat/comparison', 'dir'), mkdir('mat/comparison'); end
 fname = sprintf('mat/comparison/tau%02d.mat', tau*10);
-save(fname, 'net1', 'net2', 'net3', 'net4', 'net5', 'tau', 'window_len', 'num_feedback', 'num_neighbor');
+save(fname, 'net1', 'net2', 'net3', 'net4', 'net5', 'net6', 'net7', ...
+    'tau', 'window_len', 'num_feedback', 'num_neighbor');
 fprintf('\nSaved: %s\n', fname);
 
 %% Functions
-function [X, Y] = generate_data(N, tau, SNR_dB, win_len, num_fb, tf_ratio, num_nb)
+function [X, Y] = generate_data(N, tau, SNR_dB, win_len, num_fb, tf_ratio, num_nb, neighbors_only)
     sps = 10; span = 6;
     h = rcosdesign(0.3, span, sps, 'sqrt');
     h = h / norm(h);
@@ -57,12 +68,20 @@ function [X, Y] = generate_data(N, tau, SNR_dB, win_len, num_fb, tf_ratio, num_n
     noise_var = 1 / (2 * 10^(SNR_dB/10));
     rx = tx + sqrt(noise_var) * randn(size(tx));
     rx = conv(rx, h);
-    
-    % Normalizasyon
     rx = rx / std(rx);
     
-    % Feature boyutu: window + feedback + neighbor samples
-    n_features = win_len + num_fb + (2 * num_nb);
+    % Feature boyutu hesapla
+    if neighbors_only
+        n_win = 1 + 2 * num_nb;  % merkez + komşu semboller
+    else
+        n_win = win_len;
+    end
+    n_nb = 0;
+    if ~neighbors_only && num_nb > 0
+        n_nb = 2 * num_nb;
+    end
+    n_features = n_win + n_nb + num_fb;
+    
     X = zeros(N, n_features);
     Y = zeros(N, 1);
     
@@ -75,22 +94,34 @@ function [X, Y] = generate_data(N, tau, SNR_dB, win_len, num_fb, tf_ratio, num_n
         if center - half_win < 1 || center + half_win > length(rx)
             continue;
         end
-        
-        % Window features
-        if win_len == 1
-            win_feat = rx(center);
-        else
-            win_feat = rx(center - half_win : center + half_win)';
+        if num_nb > 0 && (center - num_nb*step < 1 || center + num_nb*step > length(rx))
+            continue;
         end
         
-        % Neighbor symbol samples
-        if num_nb > 0
+        % Window veya Neighbors features
+        if neighbors_only
+            % Sadece sembol konumlarındaki örnekler
+            win_feat = zeros(1, 1 + 2*num_nb);
+            win_feat(1) = rx(center);  % merkez
+            for k = 1:num_nb
+                win_feat(1 + k) = rx(center - k*step);        % sol
+                win_feat(1 + num_nb + k) = rx(center + k*step); % sağ
+            end
+        else
+            % Ara sample'lar (window)
+            if win_len == 1
+                win_feat = rx(center);
+            else
+                win_feat = rx(center - half_win : center + half_win)';
+            end
+        end
+        
+        % Neighbor samples (Full model için)
+        if ~neighbors_only && num_nb > 0
             nb_feat = zeros(1, 2 * num_nb);
             for k = 1:num_nb
-                left_idx = center - k * step;
-                right_idx = center + k * step;
-                if left_idx > 0, nb_feat(k) = rx(left_idx); end
-                if right_idx <= length(rx), nb_feat(num_nb + k) = rx(right_idx); end
+                nb_feat(k) = rx(center - k * step);
+                nb_feat(num_nb + k) = rx(center + k * step);
             end
         else
             nb_feat = [];
@@ -109,9 +140,9 @@ function [X, Y] = generate_data(N, tau, SNR_dB, win_len, num_fb, tf_ratio, num_n
         % Update DF history
         if num_fb > 0
             if rand() < tf_ratio
-                new_decision = symbols(i);  % Teacher forcing: gerçek sembol
+                new_decision = symbols(i);
             else
-                new_decision = 0;  % Eğitimde tahmin yok, sıfır ver
+                new_decision = 0;
             end
             df_history = [new_decision; df_history(1:end-1)];
         end
@@ -145,13 +176,13 @@ function net = train_model(X, Y)
     ];
     
     opts = trainingOptions('adam', ...
+        'ExecutionEnvironment', 'parallel',...
         'MaxEpochs', 25, ...
-        'MiniBatchSize', 256, ...
+        'MiniBatchSize', 512, ...
         'InitialLearnRate', 0.001, ...
         'LearnRateSchedule', 'piecewise', ...
         'LearnRateDropFactor', 0.5, ...
         'LearnRateDropPeriod', 10, ...
-        'ValidationFrequency', 50, ...
         'Shuffle', 'every-epoch', ...
         'Verbose', false);
     
