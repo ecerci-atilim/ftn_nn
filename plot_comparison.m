@@ -1,3 +1,7 @@
+set(groot,'defaultAxesTickLabelInterpreter','latex');
+set(groot,'defaulttextinterpreter','latex');
+set(groot,'defaultLegendInterpreter','latex');
+
 clear; clc; close all;
 
 [files, path] = uigetfile('mat/comparison/*_results.mat', 'MultiSelect', 'on');
@@ -10,10 +14,11 @@ fprintf('=== %d dosya seçildi ===\n\n', length(files));
 colors = {'c', 'c', 'm', 'm', 'b', 'g', 'k'};
 markers = {'x', 'o', 'x', 'o', 's', 's', 'p'};
 lines = {'-', '--', '-', '--', '-', '-', '-'};
-linewidths = [1.5, 1.5, 1.5, 2, 1.5, 2, 2.5];
+% linewidths = [1.5, 1.5, 1.5, 2, 1.5, 2, 2.5];
+linewidths = [1 1 1 1 1 1 1];
 
 y_lim = [1e-6, 1];
-x_lim = [0, 14];
+% x_lim = [0, 14];
 
 for f = 1:length(files)
     load(fullfile(path, files{f}));
@@ -32,11 +37,11 @@ for f = 1:length(files)
     end
     
     grid on;
-    xlabel('E_b/N_0 (dB)', 'FontSize', 12);
+    xlabel('$E_b/N_0$ (dB)', 'FontSize', 12);
     ylabel('BER', 'FontSize', 12);
     legend('Location', 'southwest', 'FontSize', 9);
-    title(sprintf('FTN Detection (τ = %.1f)', tau), 'FontSize', 13);
-    xlim(x_lim);
+    title(sprintf('$\\tau = %.1f$', tau), 'FontSize', 13);
+    % xlim(x_lim);
     ylim(y_lim);
     
     % Export
