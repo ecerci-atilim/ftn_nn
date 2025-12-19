@@ -17,7 +17,7 @@ for f = 1:length(files)
     ber_uncoded = zeros(1, n_snr);
     ber_theory = qfunc(sqrt(2 * 10.^(SNR_range/10)));
     
-    min_err = 100;
+    min_err = 20;
     max_bits = 1e6;
     
     models = {net1, net2, net3, net4, net5, net6, net7};
