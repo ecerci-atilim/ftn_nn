@@ -10,15 +10,15 @@ for f = 1:length(files)
     load(fullfile(path, files{f}));
     fprintf('\n========== τ=%.1f (%d/%d) ==========\n\n', tau, f, length(files));
     
-    SNR_range = 0:2:14;
+    SNR_range = 0:2:10;
     n_snr = length(SNR_range);
     
     ber = zeros(7, n_snr);
     ber_uncoded = zeros(1, n_snr);
     ber_theory = qfunc(sqrt(2 * 10.^(SNR_range/10)));
     
-    min_err = 100;
-    max_bits = 1e6;
+    min_err = 20;
+    max_bits = 5e5;
     
     models = {net1, net2, net3, net4, net5, net6, net7};
     names = {'Single', 'Single+DF', 'Neighbors', 'Neighbors+DF', 'Window', 'Window+DF', 'Full'};
