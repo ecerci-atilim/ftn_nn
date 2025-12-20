@@ -23,9 +23,9 @@ hh = conv(h, h);
 for i = 1 : 2
     % b = [randi([0, 1], 1, floor(N/2)), 1, randi([0, 1], 1, floor(N/2))];
     if i == 1
-        b = [0 1 1 0 1 0 1 1 0 1 0];
+        b = [0 1 1 0 1 0 0 1 0 1 0];
     else
-        b = [0 1 1 0 1 1 1 1 0 1 0];
+        b = [0 1 1 0 1 1 0 1 0 1 0];
     end
     m = 1-2*b;
     txus = upsample(m, tau*sps);
@@ -42,7 +42,7 @@ for i = 1 : 2
     ylabel Amplitude
     title(sprintf("%d",b))
     
-    pdom = ploc-tau*sps/2:ploc+tau*sps/2;
+    pdom = round(ploc-tau*sps/2):round(ploc+tau*sps/2);
     pran = rxmf(pdom);
     plot(pdom, pran, 'Color', 'r')
     plot(ploc, rxmf(ploc), 'g*')
