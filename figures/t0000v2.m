@@ -1,14 +1,15 @@
 clear, clc
-rng(0)
+rng shuffle
 set(groot,'defaultAxesTickLabelInterpreter','latex');
 set(groot,'defaulttextinterpreter','latex');
 set(groot,'defaultLegendInterpreter','latex');
 
 N = 11;
-tau_values = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+tau_values = .05:.05:1;
+% tau_values = [.5, .8, 1.0];
 rolloff = .3;
 gdelay = 4;
-fs = 10;
+fs = 100;
 fd = 1;
 sps = fs/fd;
 span = 2*gdelay;
@@ -19,9 +20,11 @@ colors = cool(length(tau_values));
 
 for i = 1 : 2
     if i == 1
-        b = [1 1 0 1 0 0 1 0 0 1 0];
+        % b = [1 1 0 1 0 0 1 0 0 1 0];
+        b = randi([0, 1], 1, N);
     else
-        b = [1 1 0 1 0 1 1 0 0 1 0];
+        % b = [1 1 0 1 0 1 1 0 0 1 0];
+        b(round(N/2)) = 1-b(round(N/2));
     end
     m = 1-2*b;
     
@@ -38,7 +41,7 @@ for i = 1 : 2
         tau = tau_values(k);
         ploc = 2*gdelay*fs + 1 + floor(N/2)*sps*tau;
         
-        txus = upsample(m, tau*sps);
+        txus = upsample(m, round(tau*sps));
         txsig = conv(txus, h);
         rxmf = conv(txsig, h);
         
@@ -60,7 +63,7 @@ for i = 1 : 2
     
     % Legend oluştur
     leg_handles = [h_sig; h_around; h_symbol];
-    leg_labels = [arrayfun(@(t) sprintf('$\\tau = %.1f$', t), tau_values, 'UniformOutput', false), ...
+    leg_labels = [arrayfun(@(t) sprintf('$\\tau = %.2f$', t), tau_values, 'UniformOutput', false), ...
                   {'Samples around symbol', 'Symbol'}];
     legend(leg_handles, leg_labels, 'Location', 'se')
     
@@ -73,6 +76,6 @@ for i = 1 : 2
     axis tight
 end
 subplot 211
-xlim([50 200])
+% xlim([50 200])
 subplot 212
-xlim([50 200])
+% xlim([50 200])
