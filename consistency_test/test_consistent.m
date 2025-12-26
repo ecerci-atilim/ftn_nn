@@ -1,7 +1,4 @@
 %% FTN Consistent Test - With Normalization
-% NN modelleri normalizasyonla eğitildi, test de öyle olmalı
-%
-% Emre Çerçi - Aralık 2025
 
 clear; clc; close all;
 

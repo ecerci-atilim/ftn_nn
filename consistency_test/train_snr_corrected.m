@@ -1,8 +1,4 @@
 %% FTN NN Training - CORRECTED SNR
-% SNR tanımı düzeltildi
-% Power normalization opsiyonel
-%
-% Emre Çerçi - Aralık 2025
 
 clear; clc; close all;
 

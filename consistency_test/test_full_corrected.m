@@ -1,7 +1,4 @@
 %% FTN Full Comparison - Corrected SNR
-% NN + Classical detectors - aynı koşullar
-%
-% Emre Çerçi - Aralık 2025
 
 clear; clc; close all;
 

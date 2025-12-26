@@ -1,292 +1,209 @@
-%% FTN Consistency Analysis Framework
-% Bu kod tüm detektorları aynı koşullarda test eder
-% Power normalization, SNR tanımı, N etkisi analizi
+%% FTN Sequence Length Effect - Rigorous Test
+% Çoklu bağımsız çalıştırma ile güvenilir istatistik
 %
 % Emre Çerçi - Aralık 2025
 
 clear; clc; close all;
 
-%% ========== CRITICAL PARAMETERS ==========
-% Tüm testlerde bu parametreler sabit kalacak
+%% Parameters
+tau = 0.7;
+SNR_dB = 10;
+N_values = [50, 100, 500, 1000, 5000, 10000, 50000];
 
-% System
-sps = 10;           % samples per symbol
-span = 6;           % filter span
-beta = 0.3;         % roll-off factor
-tau = 0.7;          % FTN compression factor
+n_trials = 10;          % Her N için 10 bağımsız deneme
+min_errors = 500;       % Daha fazla hata
+max_bits = 5e6;         % Daha yüksek limit
 
-% SNR
-SNR_range = 0:2:14;
-
-% Monte Carlo
-min_errors = 100;   % minimum errors to collect
-max_bits = 1e6;     % maximum bits to test
-
-% NN parameters (from training)
-window_len = 31;
-num_feedback = 4;
-
-%% ========== FILTER SETUP ==========
-h = rcosdesign(beta, span, sps, 'sqrt');
-h = h / norm(h);  % energy normalize
+sps = 10; span = 6;
+h = rcosdesign(0.3, span, sps, 'sqrt');
+h = h / norm(h);
 step = round(sps * tau);
 delay = span * sps;
 
-% ISI sequence (for classical detectors)
-hh = conv(h, h);  % matched filter response
-[~, peak_idx] = max(hh);
-g = hh(peak_idx : step : end);
-g = g / g(1);  % normalize so g(0) = 1
-g = g(abs(g) > 0.001);  % truncate negligible taps
-ISI_length = length(g);
+% ISI
+hh = conv(h, h);
+[~, pk] = max(hh);
+g = hh(pk:step:end); g = g/g(1); g = g(abs(g)>0.001);
 
-fprintf('=== FTN Consistency Test ===\n');
-fprintf('τ = %.2f, ISI taps = %d\n\n', tau, ISI_length);
+EbN0_lin = 10^(SNR_dB/10);
+noise_var = 1 / (2 * EbN0_lin);
 
-%% ========== TEST 1: Power Normalization Effect ==========
-fprintf('--- TEST 1: Power Normalization Effect ---\n');
+fprintf('=== Rigorous N Effect Test (τ=%.1f, SNR=%d dB) ===\n', tau, SNR_dB);
+fprintf('Trials per N: %d, Min errors: %d\n\n', n_trials, min_errors);
 
-N = 10000;
-SNR_test = 10;  % dB
+%% Results storage
+ber_th_all = zeros(length(N_values), n_trials);
+ber_sss_all = zeros(length(N_values), n_trials);
 
-% Generate signal
-bits = randi([0 1], N, 1);
-symbols = 2 * bits - 1;
-
-tx = conv(upsample(symbols, step), h);
-EbN0_linear = 10^(SNR_test/10);
-noise_var = 1 / (2 * EbN0_linear);
-rx = tx + sqrt(noise_var) * randn(size(tx));
-rx_mf = conv(rx, h);
-
-% Statistics before normalization
-fprintf('Before normalization:\n');
-fprintf('  rx_mf std = %.4f\n', std(rx_mf));
-fprintf('  rx_mf mean = %.4f\n', mean(rx_mf));
-
-% After normalization
-rx_mf_norm = rx_mf / std(rx_mf);
-fprintf('After normalization:\n');
-fprintf('  rx_mf_norm std = %.4f\n', std(rx_mf_norm));
-
-% What this means for noise
-fprintf('\nIMPLICATION:\n');
-fprintf('  Original noise var = %.4f\n', noise_var);
-fprintf('  After norm, effective noise var = %.4f\n', noise_var / var(rx_mf));
-fprintf('  SNR shift ≈ %.1f dB\n', 10*log10(var(rx_mf)));
-
-%% ========== TEST 2: N (Sequence Length) Effect ==========
-fprintf('\n--- TEST 2: Sequence Length Effect ---\n');
-
-N_values = [20, 50, 100, 500, 1000, 5000, 10000, 50000];
-SNR_test = 10;
-
-fprintf('Testing different N values at SNR = %d dB\n', SNR_test);
-fprintf('(Using simple threshold detection)\n\n');
-
-ber_vs_N = zeros(size(N_values));
-
+%% Main Loop
 for n_idx = 1:length(N_values)
     N = N_values(n_idx);
+    fprintf('N = %5d: ', N);
     
-    errors = 0;
-    total = 0;
-    
-    while errors < min_errors && total < max_bits
-        bits = randi([0 1], N, 1);
-        symbols = 2 * bits - 1;
+    for trial = 1:n_trials
+        errors_th = 0;
+        errors_sss = 0;
+        total_bits = 0;
         
-        tx = conv(upsample(symbols, step), h);
-        EbN0_linear = 10^(SNR_test/10);
-        noise_var = 1 / (2 * EbN0_linear);
-        rx = tx + sqrt(noise_var) * randn(size(tx));
-        rx_mf = conv(rx, h);
-        
-        % Simple threshold detection
-        for i = 1:N
-            idx = (i-1) * step + 1 + delay;
-            if idx > 0 && idx <= length(rx_mf)
-                pred_bit = real(rx_mf(idx)) > 0;
-                if pred_bit ~= bits(i)
-                    errors = errors + 1;
+        while (errors_th < min_errors || errors_sss < min_errors) && total_bits < max_bits
+            bits = randi([0 1], N, 1);
+            symbols = 2*bits - 1;
+            
+            tx = conv(upsample(symbols, step), h);
+            rx = tx + sqrt(noise_var) * randn(size(tx));
+            rx_mf = conv(rx, h);
+            
+            rx_sym = zeros(1, N);
+            for i = 1:N
+                idx = (i-1)*step + 1 + delay;
+                if idx > 0 && idx <= length(rx_mf)
+                    rx_sym(i) = rx_mf(idx);
                 end
-                total = total + 1;
             end
-        end
-    end
-    
-    ber_vs_N(n_idx) = errors / total;
-    fprintf('  N = %5d: BER = %.2e\n', N, ber_vs_N(n_idx));
-end
-
-% Plot N effect
-figure('Position', [100 100 600 400]);
-semilogx(N_values, ber_vs_N, 'b-o', 'LineWidth', 2, 'MarkerSize', 8);
-grid on;
-xlabel('Sequence Length N');
-ylabel('BER');
-title(sprintf('Effect of Sequence Length (τ=%.1f, SNR=%d dB)', tau, SNR_test));
-% saveas(gcf, 'figures/N_effect_test.png');
-
-%% ========== TEST 3: Consistent Comparison (NO Normalization) ==========
-fprintf('\n--- TEST 3: Consistent Comparison (No Power Norm) ---\n');
-
-N = 1000;  % Fixed moderate length
-
-% Results storage
-ber_threshold = zeros(1, length(SNR_range));
-ber_sss = zeros(1, length(SNR_range));
-ber_theory = qfunc(sqrt(2 * 10.^(SNR_range/10)));
-
-for s_idx = 1:length(SNR_range)
-    SNR_dB = SNR_range(s_idx);
-    EbN0_linear = 10^(SNR_dB/10);
-    noise_var = 1 / (2 * EbN0_linear);
-    
-    errors_th = 0;
-    errors_sss = 0;
-    total = 0;
-    
-    while (errors_th < min_errors || errors_sss < min_errors) && total < max_bits
-        bits = randi([0 1], N, 1);
-        symbols = 2 * bits - 1;
-        
-        tx = conv(upsample(symbols, step), h);
-        rx = tx + sqrt(noise_var) * randn(size(tx));
-        rx_mf = conv(rx, h);
-        
-        % Sample at symbol instants (NO normalization)
-        rx_sampled = zeros(1, N);
-        for i = 1:N
-            idx = (i-1) * step + 1 + delay;
-            if idx > 0 && idx <= length(rx_mf)
-                rx_sampled(i) = real(rx_mf(idx));
-            end
+            
+            % Threshold
+            det_th = rx_sym > 0;
+            errors_th = errors_th + sum(det_th ~= bits');
+            
+            % SSSgbKSE  
+            det_sss = SSSgbKSE(rx_sym, g, 4) > 0;
+            errors_sss = errors_sss + sum(det_sss ~= bits');
+            
+            total_bits = total_bits + N;
         end
         
-        % 1. Threshold detection
-        bits_th = rx_sampled > 0;
-        errors_th = errors_th + sum(bits_th ~= bits');
-        
-        % 2. SSSgbKSE
-        bits_sss = SSSgbKSE(rx_sampled, g, 4) > 0;
-        errors_sss = errors_sss + sum(bits_sss ~= bits');
-        
-        total = total + N;
+        ber_th_all(n_idx, trial) = errors_th / total_bits;
+        ber_sss_all(n_idx, trial) = errors_sss / total_bits;
+        fprintf('.');
     end
     
-    ber_threshold(s_idx) = errors_th / total;
-    ber_sss(s_idx) = errors_sss / total;
+    % Statistics
+    th_mean = mean(ber_th_all(n_idx,:));
+    th_std = std(ber_th_all(n_idx,:));
+    sss_mean = mean(ber_sss_all(n_idx,:));
+    sss_std = std(ber_sss_all(n_idx,:));
     
-    fprintf('SNR = %2d dB: Threshold = %.2e, SSSgbKSE = %.2e\n', ...
-        SNR_dB, ber_threshold(s_idx), ber_sss(s_idx));
+    fprintf(' Th=%.3f±%.3f%%, SSS=%.4f±%.4f%%\n', ...
+        th_mean*100, th_std*100, sss_mean*100, sss_std*100);
 end
 
-% Plot
-figure('Position', [100 100 800 500]);
-semilogy(SNR_range, ber_theory, 'k--', 'LineWidth', 2, 'DisplayName', 'AWGN Theory');
+%% Statistical Analysis
+fprintf('\n=== Statistical Analysis ===\n');
+
+th_means = mean(ber_th_all, 2);
+sss_means = mean(ber_sss_all, 2);
+
+% Correlation with N (using base MATLAB)
+R_th = corrcoef(log10(N_values)', th_means);
+r_th = R_th(1,2);
+R_sss = corrcoef(log10(N_values)', sss_means);
+r_sss = R_sss(1,2);
+
+% Simple t-test for correlation significance
+n_pts = length(N_values);
+t_th = r_th * sqrt(n_pts-2) / sqrt(1-r_th^2);
+t_sss = r_sss * sqrt(n_pts-2) / sqrt(1-r_sss^2);
+
+% Critical t-value for 95% (two-tailed, df=n-2)
+t_crit = 2.571;  % for df=5, alpha=0.05
+
+fprintf('Threshold: r=%.3f, |t|=%.2f ', r_th, abs(t_th));
+if abs(t_th) < t_crit
+    fprintf('(NO significant trend)\n');
+    p_th = 0.1;  % placeholder
+else
+    fprintf('(SIGNIFICANT trend!)\n');
+    p_th = 0.01;
+end
+
+fprintf('SSSgbKSE:  r=%.3f, |t|=%.2f ', r_sss, abs(t_sss));
+if abs(t_sss) < t_crit
+    fprintf('(NO significant trend)\n');
+    p_sss = 0.1;
+else
+    fprintf('(SIGNIFICANT trend!)\n');
+    p_sss = 0.01;
+end
+
+%% Plot with Error Bars
+figure('Position', [100 100 1000 450], 'Color', 'w');
+
+% Threshold
+subplot(1,2,1);
+th_mean = mean(ber_th_all, 2) * 100;
+th_std = std(ber_th_all, 0, 2) * 100;
+th_ci = 1.96 * th_std / sqrt(n_trials);  % 95% CI
+
+errorbar(1:length(N_values), th_mean, th_ci, '-o', 'LineWidth', 2, ...
+    'MarkerSize', 10, 'MarkerFaceColor', 'r', 'Color', 'r', 'CapSize', 10);
 hold on;
-semilogy(SNR_range, ber_threshold, 'r-^', 'LineWidth', 1.5, 'DisplayName', 'Threshold');
-semilogy(SNR_range, ber_sss, 'g-s', 'LineWidth', 1.5, 'DisplayName', 'SSSgbKSE');
+yline(mean(th_mean), 'r--', 'LineWidth', 1.5);
+set(gca, 'XTick', 1:length(N_values), 'XTickLabel', N_values);
+xlabel('Sequence Length N', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('BER (%)', 'FontSize', 12, 'FontWeight', 'bold');
+title(sprintf('Threshold (|t|=%.2f)', abs(t_th)), 'FontSize', 13, 'FontWeight', 'bold');
 grid on;
-xlabel('E_b/N_0 (dB)');
-ylabel('BER');
-legend('Location', 'southwest');
-title(sprintf('Classical Detectors - No Power Norm (τ=%.1f, N=%d)', tau, N));
-ylim([1e-5 1]);
-% saveas(gcf, 'figures/classical_consistent.png');
+set(gca, 'FontSize', 11);
 
-%% ========== TEST 4: SNR Definition Check ==========
-fprintf('\n--- TEST 4: SNR Definition Verification ---\n');
+% SSSgbKSE
+subplot(1,2,2);
+sss_mean = mean(ber_sss_all, 2) * 100;
+sss_std = std(ber_sss_all, 0, 2) * 100;
+sss_ci = 1.96 * sss_std / sqrt(n_trials);
 
-N = 10000;
-SNR_test = 10;
+errorbar(1:length(N_values), sss_mean, sss_ci, '-s', 'LineWidth', 2, ...
+    'MarkerSize', 10, 'MarkerFaceColor', 'g', 'Color', [0 0.6 0], 'CapSize', 10);
+hold on;
+yline(mean(sss_mean), '--', 'LineWidth', 1.5, 'Color', [0 0.6 0]);
+set(gca, 'XTick', 1:length(N_values), 'XTickLabel', N_values);
+xlabel('Sequence Length N', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('BER (%)', 'FontSize', 12, 'FontWeight', 'bold');
+title(sprintf('SSSgbKSE (|t|=%.2f)', abs(t_sss)), 'FontSize', 13, 'FontWeight', 'bold');
+grid on;
+set(gca, 'FontSize', 11);
 
-bits = randi([0 1], N, 1);
-symbols = 2 * bits - 1;
+sgtitle(sprintf('Effect of Sequence Length with 95%% CI (τ=%.1f, SNR=%d dB, %d trials)', ...
+    tau, SNR_dB, n_trials), 'FontSize', 14, 'FontWeight', 'bold');
 
-% Method 1: Manual noise variance (our method)
-tx1 = conv(upsample(symbols, step), h);
-EbN0_linear = 10^(SNR_test/10);
-noise_var = 1 / (2 * EbN0_linear);
-rx1 = tx1 + sqrt(noise_var) * randn(size(tx1));
+if ~exist('figures', 'dir'), mkdir('figures'); end
+saveas(gcf, 'figures/n_effect_rigorous.png');
+fprintf('\nSaved: figures/n_effect_rigorous.png\n');
 
-signal_power = var(tx1);
-noise_power = noise_var;
-actual_SNR_method1 = 10*log10(signal_power / noise_power);
+%% Conclusion
+fprintf('\n=== CONCLUSION ===\n');
+if abs(t_th) < t_crit && abs(t_sss) < t_crit
+    fprintf('✓ NO significant effect of sequence length N on BER\n');
+    fprintf('✓ Simulations are reliable regardless of N choice\n');
+    fprintf('✓ Advisor''s hypothesis NOT supported by data\n');
+else
+    fprintf('✗ Significant effect detected - investigate further\n');
+end
 
-% Method 2: Using awgn function (MATLAB built-in)
-tx2 = conv(upsample(symbols, step), h);
-rx2 = awgn(tx2, SNR_test, 'measured');
-
-fprintf('Target SNR: %d dB\n', SNR_test);
-fprintf('Method 1 (manual): Actual SNR = %.2f dB\n', actual_SNR_method1);
-fprintf('Signal power = %.4f, Noise var = %.4f\n', signal_power, noise_var);
-
-%% ========== FUNCTIONS ==========
-
-function mesSE = SSSgbKSE(mesin, ISI, gbK)
-    % Symbol-by-Symbol detection with Go-back-K Sequence Estimation
-    % mesin: matched filter output samples
-    % ISI: ISI tap coefficients [g(0), g(1), g(2), ...]
-    % gbK: go-back length
-    
-    s = length(mesin);
-    L = length(ISI);
-    ssd = zeros(1, s);
-    mesSE = zeros(1, s);
-    
-    for n = 1:s
-        % --- SSD: Symbol-by-Symbol Detection ---
-        if n == 1
-            ssd(n) = mesin(n);
+%% Function
+function out = SSSgbKSE(in, ISI, K)
+    N = length(in); L = length(ISI);
+    ssd = zeros(1,N); out = zeros(1,N);
+    for n = 1:N
+        if n == 1, ssd(n) = in(n);
         else
-            % Backward ISI cancellation
-            isi_taps = min(n-1, L-1);
-            if isi_taps > 0
-                isi_cancel = 0;
-                for k = 1:isi_taps
-                    if k+1 <= L
-                        isi_cancel = isi_cancel + sign(ssd(n-k)) * ISI(k+1);
-                    end
-                end
-                ssd(n) = mesin(n) - isi_cancel;
-            else
-                ssd(n) = mesin(n);
+            c = 0;
+            for k = 1:min(n-1,L-1)
+                if k+1<=L, c = c + sign(ssd(n-k))*ISI(k+1); end
             end
+            ssd(n) = in(n) - c;
         end
-        
-        % --- Go-back K: Refine past decisions ---
-        if n > gbK
-            for i = (n - gbK):n
-                backward_taps = min(i-1, L-1);
-                forward_taps = min(n-i, L-1);
-                
-                val = mesin(i);
-                
-                % Forward ISI (from future symbols - use ssd)
-                if forward_taps > 0 && i < n
-                    for k = 1:forward_taps
-                        if k+1 <= L && i+k <= n
-                            val = val - sign(ssd(i+k)) * ISI(k+1);
-                        end
-                    end
+        if n > K
+            for i = (n-K):n
+                v = in(i);
+                for k = 1:min(n-i,L-1)
+                    if k+1<=L && i+k<=n, v = v - sign(ssd(i+k))*ISI(k+1); end
                 end
-                
-                % Backward ISI (from past symbols - use mesSE)
-                if backward_taps > 0 && i > 1
-                    for k = 1:backward_taps
-                        if k+1 <= L && i-k >= 1
-                            val = val - sign(mesSE(i-k)) * ISI(k+1);
-                        end
-                    end
+                for k = 1:min(i-1,L-1)
+                    if k+1<=L && i-k>=1, v = v - sign(out(i-k))*ISI(k+1); end
                 end
-                
-                mesSE(i) = val;
+                out(i) = v;
             end
         end
     end
-    
-    % Fill unprocessed symbols
-    mesSE(mesSE == 0) = ssd(mesSE == 0);
+    out(out==0) = ssd(out==0);
 end

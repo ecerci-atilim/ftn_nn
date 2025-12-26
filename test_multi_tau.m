@@ -1,7 +1,5 @@
 %% FTN Full Comparison - NN vs Classical vs M-BCJR
 % τ = 0.6, 0.7, 0.8
-%
-% Emre Çerçi - Aralık 2025
 
 clear; clc; close all;
 

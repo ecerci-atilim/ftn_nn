@@ -1,7 +1,4 @@
 %% FTN Test - Using MATLAB awgn() for Correct SNR
-% En güvenilir SNR: awgn(tx, SNR_dB, 'measured')
-%
-% Emre Çerçi - Aralık 2025
 
 clear; clc; close all;
 

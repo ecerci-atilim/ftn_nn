@@ -1,7 +1,4 @@
 %% FTN Simple Consistent Test
-% Mevcut modelleri kullan, herkes AYNI koşullarda
-%
-% Emre Çerçi - Aralık 2025
 
 clear; clc; close all;
 
