@@ -6,7 +6,7 @@ clear; clc; close all;
 %% Parameters
 tau_values = [0.6, 0.7, 0.8];
 SNR_range = 0:2:14;
-N = 10000;
+N = 50000;
 min_errors = 50;  % For M-BCJR (slow)
 
 sps = 10; span = 6; beta = 0.3;
