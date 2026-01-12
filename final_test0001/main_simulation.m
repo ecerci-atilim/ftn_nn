@@ -1,0 +1,400 @@
+%% FTN Detection: Fair Comparison of 3 Approaches
+% 1. Neighbor (symbol-rate sampling)
+% 2. Fractional (inter-symbol samples)
+% 3. Hybrid (neighbor symbols + inter-symbol samples)
+% Each tested with and without Decision Feedback (D=4)
+
+clear; clc; close all;
+
+%% Parameters
+sps = 10;                   % samples per symbol (Nyquist)
+beta = 0.3;                 % roll-off factor
+span = 6;                   % pulse span in symbols
+tau_values = [0.5, 0.6, 0.7, 0.8, 0.9];
+SNR_train = 8;              % training SNR (dB)
+SNR_test = 0:2:14;          % test SNR range (dB)
+N_train = 50000;            % training symbols (reduced for speed)
+N_block = 10000;            % symbols per block
+min_errors = 100;           % minimum errors for reliable BER
+max_symbols = 1e6;          % maximum symbols to prevent infinite loop
+D = 4;                      % decision feedback depth
+n_input = 7;                % base input size (without DF)
+
+% NN architecture (smaller for faster training)
+hidden_sizes = [32, 16];
+max_epochs = 30;          % reduced from 100
+mini_batch = 1024;        % increased from 512
+
+%% Create output directory
+[~,~] = mkdir('results');
+[~,~] = mkdir('figures');
+
+%% Generate pulse (same as reference)
+h = rcosdesign(beta, span, sps, 'sqrt');
+h = h / norm(h);
+delay = span * sps;
+
+%% Approach names
+approaches = {'Neighbor', 'Fractional', 'Hybrid'};
+n_approaches = length(approaches);
+
+%% Print simulation info
+fprintf('========================================\n');
+fprintf('  FTN Fair Comparison Simulation\n');
+fprintf('========================================\n');
+fprintf('Tau values:    [%s]\n', num2str(tau_values));
+fprintf('SNR range:     %d to %d dB\n', SNR_test(1), SNR_test(end));
+fprintf('Train symbols: %d\n', N_train);
+fprintf('Test:          min %d errors OR max %.0e symbols\n', min_errors, max_symbols);
+fprintf('Approaches:    %d (x2 with DF) = %d configs per tau\n', n_approaches, n_approaches*2);
+fprintf('Total runs:    %d\n', length(tau_values) * n_approaches * 2);
+fprintf('========================================\n');
+
+total_timer = tic;
+
+%% Main simulation loop
+for tau_idx = 1:length(tau_values)
+    tau = tau_values(tau_idx);
+    T_ftn = round(tau * sps);  % FTN symbol spacing in samples
+    
+    fprintf('\n');
+    fprintf('========================================\n');
+    fprintf('  [%d/%d] tau = %.1f (T_ftn = %d samples)\n', tau_idx, length(tau_values), tau, T_ftn);
+    fprintf('========================================\n');
+    
+    % Compute sample offsets for each approach
+    offsets = compute_offsets(T_ftn);
+    
+    %% Generate training data
+    fprintf('\nGenerating training data (N=%d, SNR=%ddB)...\n', N_train, SNR_train);
+    rng(42);  % reproducibility
+    bits_train = randi([0 1], 1, N_train);
+    [rx_train, symbol_indices] = generate_ftn_rx(bits_train, tau, sps, h, delay, SNR_train);
+    
+    %% Train and test each approach
+    results = struct();
+    
+    for app = 1:n_approaches
+        for use_df = [false, true]
+            df_str = conditional(use_df, 'DF', 'noDF');
+            config_name = sprintf('%s_%s', approaches{app}, df_str);
+            fprintf('\n[%s]\n', config_name);
+            
+            % Extract training features
+            fprintf('  Extracting features... ');
+            tic;
+            [X_train, y_train] = extract_features(rx_train, bits_train, symbol_indices, ...
+                                                   app, offsets, use_df, D, []);
+            fprintf('done (%.1fs)\n', toc);
+            
+            % Train NN
+            fprintf('  Training NN (%d inputs, hidden=[%d,%d])... ', ...
+                    size(X_train,2), hidden_sizes(1), hidden_sizes(2));
+            tic;
+            net = train_nn(X_train, y_train, hidden_sizes, max_epochs, mini_batch);
+            fprintf('done (%.1fs)\n', toc);
+            
+            % Test over SNR range
+            fprintf('  Testing: ');
+            BER = zeros(size(SNR_test));
+            
+            for snr_idx = 1:length(SNR_test)
+                snr = SNR_test(snr_idx);
+                fprintf('SNR=%d ', snr);
+                
+                total_errors = 0;
+                total_symbols = 0;
+                block_idx = 0;
+                
+                while total_errors < min_errors && total_symbols < max_symbols
+                    block_idx = block_idx + 1;
+                    rng(100*snr_idx + block_idx);
+                    
+                    bits_test = randi([0 1], 1, N_block);
+                    [rx_test, sym_idx_test] = generate_ftn_rx(bits_test, tau, sps, h, delay, snr);
+                    
+                    % Detect
+                    bits_hat = detect_symbols(rx_test, sym_idx_test, net, app, offsets, use_df, D);
+                    
+                    % Count errors (exclude edges)
+                    margin = max(abs(offsets.neighbor)) + D + 1;
+                    valid = (margin+1):(N_block-margin);
+                    total_errors = total_errors + sum(bits_hat(valid) ~= bits_test(valid));
+                    total_symbols = total_symbols + length(valid);
+                end
+                
+                BER(snr_idx) = total_errors / total_symbols;
+            end
+            
+            results.(config_name).BER = BER;
+            results.(config_name).SNR = SNR_test;
+            
+            fprintf('\n  BER: ');
+            fprintf('%.1e ', BER);
+            fprintf('\n');
+        end
+    end
+    
+    %% Save results
+    fprintf('\nSaving results for tau=%.1f...\n', tau);
+    save(sprintf('results/results_tau%.1f.mat', tau), 'results', 'SNR_test', 'tau', 'offsets');
+    
+    %% Plot BER curves
+    fprintf('Generating BER plot...\n');
+    plot_ber_curves(results, SNR_test, tau, approaches);
+end
+
+fprintf('\n========================================\n');
+fprintf('  Simulation complete!\n');
+fprintf('  Total time: %.1f minutes\n', toc(total_timer)/60);
+fprintf('========================================\n');
+
+%% ===================== HELPER FUNCTIONS =====================
+
+function offsets = compute_offsets(T_ftn)
+    % Compute sample offsets for each approach
+    % All approaches use 7 samples (excluding DF)
+    
+    % Approach 1: Neighbor (symbol-rate) - MF output at symbol instants
+    % Offsets in symbol periods: -3, -2, -1, 0, 1, 2, 3
+    offsets.neighbor = (-3:3) * T_ftn;
+    
+    % Approach 2: Fractional - spread within ±(T_ftn-1), no neighbor instant
+    % Divide the inter-symbol space evenly
+    offsets.fractional = round((-3:3) * (T_ftn-1) / 3);
+    % Ensure center is 0
+    offsets.fractional(4) = 0;
+    
+    % Approach 3: Hybrid - center + 2 neighbor instants + 4 inter-symbol
+    % [k-T_ftn, k-2T/3, k-T/3, k, k+T/3, k+2T/3, k+T_ftn]
+    t1 = round(T_ftn / 3);
+    t2 = round(2 * T_ftn / 3);
+    offsets.hybrid = [-T_ftn, -t2, -t1, 0, t1, t2, T_ftn];
+end
+
+function [rx, symbol_indices] = generate_ftn_rx(bits, tau, sps, h, delay, SNR_dB)
+    % Generate FTN received signal with AWGN (Eb/N0 based)
+    % Matches reference_simulation.m format
+    
+    symbols = 2*bits - 1;  % BPSK
+    step = round(tau * sps);
+    N = length(bits);
+    
+    % Transmit
+    tx = conv(upsample(symbols(:), step), h);
+    
+    % Add noise (Eb/N0 based)
+    EbN0_lin = 10^(SNR_dB/10);
+    noise_var = 1 / (2 * EbN0_lin);
+    rx_noisy = tx + sqrt(noise_var) * randn(size(tx));
+    
+    % Matched filter
+    rx_mf = conv(rx_noisy, h);
+    
+    % Normalize
+    rx = rx_mf(:)' / std(rx_mf);
+    
+    % Symbol indices
+    symbol_indices = delay + 1 + (0:N-1) * step;
+end
+
+function [X, y] = extract_features(rx, bits, symbol_indices, approach, offsets, use_df, D, prev_decisions)
+    % Extract feature vectors for training
+    N = length(bits);
+    
+    % Select offsets based on approach
+    switch approach
+        case 1, off = offsets.neighbor;
+        case 2, off = offsets.fractional;
+        case 3, off = offsets.hybrid;
+    end
+    
+    n_samples = length(off);
+    margin = max(abs(off)) + D + 1;
+    valid_range = (margin+1):(N-margin);
+    n_valid = length(valid_range);
+    
+    % Preallocate
+    if use_df
+        X = zeros(n_valid, n_samples + D);
+    else
+        X = zeros(n_valid, n_samples);
+    end
+    y = zeros(n_valid, 1);
+    
+    for i = 1:n_valid
+        k = valid_range(i);
+        center = symbol_indices(k);
+        
+        % Extract samples
+        X(i, 1:n_samples) = rx(center + off);
+        
+        % Add decision feedback (use true bits for training)
+        if use_df
+            X(i, n_samples+1:end) = 2*bits(k-D:k-1) - 1;
+        end
+        
+        y(i) = bits(k);
+    end
+end
+
+function net = train_nn(X, y, hidden_sizes, max_epochs, mini_batch)
+    % Train neural network with early stopping
+    layers = [
+        featureInputLayer(size(X,2))
+        fullyConnectedLayer(hidden_sizes(1))
+        batchNormalizationLayer
+        reluLayer
+        dropoutLayer(0.2)
+        fullyConnectedLayer(hidden_sizes(2))
+        batchNormalizationLayer
+        reluLayer
+        dropoutLayer(0.2)
+        fullyConnectedLayer(2)
+        softmaxLayer
+        classificationLayer
+    ];
+    
+    % Split for validation (10%)
+    n = size(X,1);
+    idx = randperm(n);
+    n_val = round(0.1 * n);
+    X_val = X(idx(1:n_val), :);
+    y_val = categorical(y(idx(1:n_val)));
+    X_tr = X(idx(n_val+1:end), :);
+    y_tr = categorical(y(idx(n_val+1:end)));
+    
+    options = trainingOptions('adam', ...
+        'MaxEpochs', max_epochs, ...
+        'MiniBatchSize', mini_batch, ...
+        'ValidationData', {X_val, y_val}, ...
+        'ValidationFrequency', 50, ...
+        'ValidationPatience', 5, ...
+        'Shuffle', 'every-epoch', ...
+        'Verbose', false, ...
+        'Plots', 'none');
+    
+    net = trainNetwork(X_tr, y_tr, layers, options);
+end
+
+function bits_hat = detect_symbols(rx, symbol_indices, net, approach, offsets, use_df, D)
+    % Detect symbols using trained NN
+    N = length(symbol_indices);
+    bits_hat = zeros(1, N);
+    
+    switch approach
+        case 1, off = offsets.neighbor;
+        case 2, off = offsets.fractional;
+        case 3, off = offsets.hybrid;
+    end
+    n_samples = length(off);
+    margin = max(abs(off)) + D + 1;
+    
+    valid_range = (margin+1):(N-margin);
+    n_valid = length(valid_range);
+    
+    if ~use_df
+        % No DF: batch prediction (fast)
+        X = zeros(n_valid, n_samples);
+        for i = 1:n_valid
+            k = valid_range(i);
+            center = symbol_indices(k);
+            X(i, :) = rx(center + off);
+        end
+        
+        % Single batch predict
+        probs = predict(net, X);
+        bits_hat(valid_range) = (probs(:,2) > 0.5)';
+    else
+        % With DF: sequential (required)
+        bits_hat(1:margin) = randi([0 1], 1, margin);  % init
+        
+        for i = 1:n_valid
+            k = valid_range(i);
+            center = symbol_indices(k);
+            
+            x = rx(center + off);
+            fb = 2*bits_hat(k-D:k-1) - 1;
+            x = [x, fb];
+            
+            prob = predict(net, x);
+            bits_hat(k) = (prob(2) > 0.5);
+        end
+    end
+end
+
+function plot_ber_curves(results, SNR_test, tau, approaches)
+    % Plot BER curves for all configurations + reference
+    fig = figure('Position', [100 100 900 600]);
+    
+    colors = lines(3);
+    markers_nodf = {'o-', 's-', 'd-'};
+    markers_df = {'o--', 's--', 'd--'};
+    
+    semilogy(nan, nan); hold on;  % initialize log scale
+    
+    legends = {};
+    
+    % Load reference if exists
+    ref_file = sprintf('results/reference_tau%.1f.mat', tau);
+    if exist(ref_file, 'file')
+        load(ref_file, 'results_ref');
+        
+        % Plot Threshold
+        if isfield(results_ref, 'threshold') && ~all(isnan(results_ref.threshold.BER))
+            semilogy(results_ref.threshold.SNR, results_ref.threshold.BER, 'k--', ...
+                     'LineWidth', 1.5);
+            legends{end+1} = 'Threshold';
+        end
+        
+        % Plot SSSgbKSE
+        if isfield(results_ref, 'sss') && ~all(isnan(results_ref.sss.BER))
+            semilogy(results_ref.sss.SNR, results_ref.sss.BER, 'k-v', ...
+                     'LineWidth', 1.5, 'MarkerSize', 6);
+            legends{end+1} = 'SSSgbKSE';
+        end
+        
+        % Plot M-BCJR
+        if isfield(results_ref, 'bcjr') && ~all(isnan(results_ref.bcjr.BER))
+            semilogy(results_ref.bcjr.SNR, results_ref.bcjr.BER, 'k-^', ...
+                     'LineWidth', 2, 'MarkerSize', 7, 'MarkerFaceColor', 'k');
+            legends{end+1} = 'M-BCJR';
+        end
+    end
+    
+    % Plot NN approaches
+    for app = 1:length(approaches)
+        % Without DF
+        name_nodf = sprintf('%s_noDF', approaches{app});
+        semilogy(SNR_test, results.(name_nodf).BER, markers_nodf{app}, ...
+                 'Color', colors(app,:), 'LineWidth', 1.5, 'MarkerSize', 6);
+        legends{end+1} = sprintf('%s (no DF)', approaches{app});
+        
+        % With DF
+        name_df = sprintf('%s_DF', approaches{app});
+        semilogy(SNR_test, results.(name_df).BER, markers_df{app}, ...
+                 'Color', colors(app,:), 'LineWidth', 1.5, 'MarkerSize', 6, ...
+                 'MarkerFaceColor', colors(app,:));
+        legends{end+1} = sprintf('%s (DF)', approaches{app});
+    end
+    
+    grid on;
+    xlabel('$E_b/N_0$ (dB)', 'Interpreter', 'latex', 'FontSize', 12);
+    ylabel('BER', 'Interpreter', 'latex', 'FontSize', 12);
+    title(sprintf('BER Comparison: $\\tau = %.1f$ (7 inputs, DF: +4)', tau), ...
+          'Interpreter', 'latex', 'FontSize', 13);
+    legend(legends, 'Location', 'southwest', 'Interpreter', 'latex');
+    ylim([1e-5 1]);
+    
+    saveas(fig, sprintf('figures/ber_tau%.1f.fig', tau));
+    print(fig, sprintf('figures/ber_tau%.1f.eps', tau), '-depsc2');
+    close(fig);
+end
+
+function out = conditional(cond, true_val, false_val)
+    if cond
+        out = true_val;
+    else
+        out = false_val;
+    end
+end
