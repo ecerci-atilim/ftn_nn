@@ -10,7 +10,7 @@ clear; clc; close all;
 sps = 10;                   % samples per symbol (Nyquist)
 beta = 0.3;                 % roll-off factor
 span = 6;                   % pulse span in symbols
-tau_values = [0.5, 0.6, 0.7, 0.8, 0.9];
+tau_values = [0.8, 0.9];
 SNR_train = 8;              % training SNR (dB)
 SNR_test = 0:2:14;          % test SNR range (dB)
 N_train = 50000;            % training symbols (reduced for speed)
