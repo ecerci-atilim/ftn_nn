@@ -13,7 +13,7 @@ max_symbols = 1e6;
 
 sps = 10;
 span = 6;
-beta = 0.3;
+beta = 0.35;
 
 % M-BCJR parameters
 M_bcjr = 32;
@@ -36,10 +36,10 @@ for tau_idx = 1:length(tau_values)
     
     % Check if already done
     result_file = sprintf('results/reference_tau%.1f.mat', tau);
-    if exist(result_file, 'file')
-        fprintf('tau = %.1f already done, skipping...\n', tau);
-        continue;
-    end
+    % if exist(result_file, 'file')
+    %     fprintf('tau = %.1f already done, skipping...\n', tau);
+    %     continue;
+    % end
     
     fprintf('\n========================================\n');
     fprintf('  Reference: tau = %.1f (step = %d)\n', tau, step);

@@ -8,7 +8,7 @@ clear; clc; close all;
 sps = 10;
 beta = 0.3;
 span = 6;
-tau_values = .7;%[0.5, 0.6, 0.7, 0.8, 0.9];
+tau_values = [0.5, 0.6, 0.7, 0.8, 0.9];
 SNR_range = 0:2:14;
 SNR_train = 10;
 
