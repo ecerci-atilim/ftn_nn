@@ -4,7 +4,7 @@
 clear; clc; close all;
 
 %% Parameters
-tau_values = [0.5, 0.6, 0.7, 0.8, 0.9];
+tau_values = .7;
 SNR_range = 0:2:14;
 
 N_block = 10000;
@@ -48,19 +48,18 @@ for tau_idx = 1:length(tau_values)
     % Compute ISI coefficients
     hh = conv(h, h);
     [~, pk] = max(hh);
-    g = hh(pk:step:end); 
-    g = g / g(1); 
-    g = g(abs(g) > 0.01);
+    g = hh(pk:step:end);
+    g = g / g(1);
     fprintf('ISI taps: %d\n', length(g));
     
     % Spectral factorization for M-BCJR
     grev = g(end:-1:2);
     chISI = [grev, g];
     [v, ~] = sfact(chISI);
-    v(abs(v) < 0.01) = [];
     M_T = length(v);
     fprintf('M-BCJR M_T: %d\n', M_T);
     fprintf('Running with parfor (%d SNR points)...\n\n', length(SNR_range));
+    M_bcjr = 2^M_T;
     
     % Preallocate
     n_snr = length(SNR_range);
