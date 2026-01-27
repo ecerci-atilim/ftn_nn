@@ -120,13 +120,17 @@ fprintf('\n[2/3] Training neural networks...\n');
 
 % Store networks
 networks = struct();
+norm_params = struct();  % Store normalization parameters
 
 % Approach 1: Neighbor
 fprintf('  [1/4] Training Neighbor detector... ');
 tic;
 [X_train, y_train] = extract_features(rx_train, bits_train, symbol_indices, ...
                                        offsets.neighbor);
-networks.neighbor = train_nn(X_train, y_train, hidden_sizes, max_epochs, mini_batch);
+[X_train_norm, mu, sig] = normalize_features(X_train);
+norm_params.neighbor.mu = mu;
+norm_params.neighbor.sig = sig;
+networks.neighbor = train_nn(X_train_norm, y_train, hidden_sizes, max_epochs, mini_batch);
 fprintf('done (%.1fs)\n', toc);
 
 % Approach 2: Fractional
@@ -134,7 +138,10 @@ fprintf('  [2/4] Training Fractional detector... ');
 tic;
 [X_train, y_train] = extract_features(rx_train, bits_train, symbol_indices, ...
                                        offsets.fractional);
-networks.fractional = train_nn(X_train, y_train, hidden_sizes, max_epochs, mini_batch);
+[X_train_norm, mu, sig] = normalize_features(X_train);
+norm_params.fractional.mu = mu;
+norm_params.fractional.sig = sig;
+networks.fractional = train_nn(X_train_norm, y_train, hidden_sizes, max_epochs, mini_batch);
 fprintf('done (%.1fs)\n', toc);
 
 % Approach 3: Hybrid
@@ -142,7 +149,10 @@ fprintf('  [3/4] Training Hybrid detector... ');
 tic;
 [X_train, y_train] = extract_features(rx_train, bits_train, symbol_indices, ...
                                        offsets.hybrid);
-networks.hybrid = train_nn(X_train, y_train, hidden_sizes, max_epochs, mini_batch);
+[X_train_norm, mu, sig] = normalize_features(X_train);
+norm_params.hybrid.mu = mu;
+norm_params.hybrid.sig = sig;
+networks.hybrid = train_nn(X_train_norm, y_train, hidden_sizes, max_epochs, mini_batch);
 fprintf('done (%.1fs)\n', toc);
 
 % Approach 4: Structured CNN
@@ -192,7 +202,9 @@ for snr_idx = 1:length(SNR_test)
             off = offsets.(app_name);
             [X_test, valid_bits] = extract_features(rx_test, bits_test, ...
                                                      sym_idx_test, off);
-            bits_hat = detect_fc(X_test, networks.(app_name));
+            % Apply same normalization as training
+            X_test_norm = (X_test - norm_params.(app_name).mu) ./ norm_params.(app_name).sig;
+            bits_hat = detect_fc(X_test_norm, networks.(app_name));
         end
 
         % Calculate BER
@@ -550,4 +562,19 @@ function bits_hat = detect_cnn(X_struct, net)
     % Detect using CNN
     probs = predict(net, X_struct);
     bits_hat = (probs(:,2) > 0.5);  % Column vector to match valid_bits
+end
+
+function [X_norm, mu, sig] = normalize_features(X)
+    % Normalize features: zero mean, unit variance
+    % X: (n_samples, n_features) matrix
+    % Normalizes each feature (column) independently
+
+    mu = mean(X, 1);   % Mean of each feature across all samples
+    sig = std(X, 0, 1); % Std of each feature across all samples
+
+    % Avoid division by zero
+    sig(sig == 0) = 1;
+
+    % Normalize
+    X_norm = (X - mu) ./ sig;
 end
