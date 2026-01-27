@@ -1,14 +1,12 @@
 function ftn_sim_gui()
 % FTN_SIM_GUI - Interactive GUI for FTN Simulation with Impairments
 %
-% Usage:
-%   ftn_sim_gui
-%
 % Features:
-%   - Interactive parameter selection
-%   - Toggle impairments on/off
-%   - Real-time BER simulation
-%   - Automatic plot generation
+%   - Configure all 7 impairments via GUI
+%   - Set SNR range (start, end, increment)
+%   - Run full BER simulation
+%   - Real-time progress display
+%   - Automatic BER plot generation
 %
 % Author: Emre Cerci
 % Date: January 2026
@@ -16,7 +14,7 @@ function ftn_sim_gui()
     % Create figure
     hFig = figure('Name', 'FTN Simulation with Impairments', ...
                   'NumberTitle', 'off', ...
-                  'Position', [100 100 900 700], ...
+                  'Position', [50 50 1100 750], ...
                   'MenuBar', 'none', ...
                   'Resize', 'on');
 
@@ -24,6 +22,7 @@ function ftn_sim_gui()
     data = struct();
     data.config = get_default_config();
     data.sim_running = false;
+    data.results = struct();
 
     % Create UI components
     createUI();
@@ -41,32 +40,59 @@ function ftn_sim_gui()
                   'FontSize', 14, ...
                   'FontWeight', 'bold', ...
                   'Units', 'normalized', ...
-                  'Position', [0.25 0.93 0.5 0.05]);
+                  'Position', [0.25 0.95 0.5 0.04]);
 
-        % ===== FTN Parameters Panel =====
-        uipanel('Title', 'FTN Parameters', ...
+        % ===== FTN & Simulation Parameters Panel =====
+        uipanel('Title', 'FTN & Simulation Parameters', ...
                 'FontSize', 10, ...
                 'FontWeight', 'bold', ...
                 'Units', 'normalized', ...
-                'Position', [0.02 0.75 0.45 0.16]);
+                'Position', [0.02 0.75 0.45 0.18]);
 
-        uicontrol('Style', 'text', 'String', 'Tau (compression):', ...
-                  'Units', 'normalized', 'Position', [0.04 0.85 0.15 0.03], ...
+        % Row 1: Tau and L_frac
+        uicontrol('Style', 'text', 'String', 'Tau:', ...
+                  'Units', 'normalized', 'Position', [0.04 0.87 0.08 0.03], ...
                   'HorizontalAlignment', 'left');
         data.edit_tau = uicontrol('Style', 'edit', 'String', '0.7', ...
-                                   'Units', 'normalized', 'Position', [0.20 0.85 0.08 0.03]);
+                                   'Units', 'normalized', 'Position', [0.13 0.87 0.07 0.03]);
 
         uicontrol('Style', 'text', 'String', 'Fractional L:', ...
-                  'Units', 'normalized', 'Position', [0.04 0.81 0.15 0.03], ...
+                  'Units', 'normalized', 'Position', [0.22 0.87 0.12 0.03], ...
                   'HorizontalAlignment', 'left');
         data.edit_lfrac = uicontrol('Style', 'edit', 'String', '2', ...
-                                     'Units', 'normalized', 'Position', [0.20 0.81 0.08 0.03]);
+                                     'Units', 'normalized', 'Position', [0.35 0.87 0.07 0.03]);
 
-        uicontrol('Style', 'text', 'String', 'N train:', ...
-                  'Units', 'normalized', 'Position', [0.04 0.77 0.15 0.03], ...
+        % Row 2: N_test and N_window
+        uicontrol('Style', 'text', 'String', 'N test:', ...
+                  'Units', 'normalized', 'Position', [0.04 0.83 0.08 0.03], ...
                   'HorizontalAlignment', 'left');
-        data.edit_ntrain = uicontrol('Style', 'edit', 'String', '50000', ...
-                                      'Units', 'normalized', 'Position', [0.20 0.77 0.08 0.03]);
+        data.edit_ntest = uicontrol('Style', 'edit', 'String', '10000', ...
+                                     'Units', 'normalized', 'Position', [0.13 0.83 0.07 0.03]);
+
+        uicontrol('Style', 'text', 'String', 'N window:', ...
+                  'Units', 'normalized', 'Position', [0.22 0.83 0.12 0.03], ...
+                  'HorizontalAlignment', 'left');
+        data.edit_nwindow = uicontrol('Style', 'edit', 'String', '8', ...
+                                       'Units', 'normalized', 'Position', [0.35 0.83 0.07 0.03]);
+
+        % Row 3: SNR Range
+        uicontrol('Style', 'text', 'String', 'SNR Start (dB):', ...
+                  'Units', 'normalized', 'Position', [0.04 0.79 0.12 0.03], ...
+                  'HorizontalAlignment', 'left');
+        data.edit_snr_start = uicontrol('Style', 'edit', 'String', '0', ...
+                                         'Units', 'normalized', 'Position', [0.17 0.79 0.06 0.03]);
+
+        uicontrol('Style', 'text', 'String', 'End:', ...
+                  'Units', 'normalized', 'Position', [0.24 0.79 0.05 0.03], ...
+                  'HorizontalAlignment', 'left');
+        data.edit_snr_end = uicontrol('Style', 'edit', 'String', '14', ...
+                                       'Units', 'normalized', 'Position', [0.29 0.79 0.06 0.03]);
+
+        uicontrol('Style', 'text', 'String', 'Step:', ...
+                  'Units', 'normalized', 'Position', [0.36 0.79 0.05 0.03], ...
+                  'HorizontalAlignment', 'left');
+        data.edit_snr_step = uicontrol('Style', 'edit', 'String', '2', ...
+                                        'Units', 'normalized', 'Position', [0.41 0.79 0.05 0.03]);
 
         % ===== Transmitter Impairments Panel =====
         uipanel('Title', 'Transmitter Impairments', ...
@@ -135,79 +161,79 @@ function ftn_sim_gui()
                 'FontSize', 10, ...
                 'FontWeight', 'bold', ...
                 'Units', 'normalized', ...
-                'Position', [0.50 0.38 0.47 0.53]);
+                'Position', [0.50 0.38 0.47 0.55]);
 
         % CFO
         data.chk_cfo = uicontrol('Style', 'checkbox', 'String', 'Carrier Frequency Offset', ...
-                                 'Units', 'normalized', 'Position', [0.52 0.85 0.20 0.03], ...
+                                 'Units', 'normalized', 'Position', [0.52 0.87 0.20 0.03], ...
                                  'Callback', @cb_toggle_cfo);
 
         uicontrol('Style', 'text', 'String', 'CFO (Hz):', ...
-                  'Units', 'normalized', 'Position', [0.54 0.81 0.08 0.03], ...
+                  'Units', 'normalized', 'Position', [0.54 0.83 0.08 0.03], ...
                   'HorizontalAlignment', 'left');
         data.edit_cfo_hz = uicontrol('Style', 'edit', 'String', '100', ...
-                                     'Units', 'normalized', 'Position', [0.63 0.82 0.08 0.03], ...
+                                     'Units', 'normalized', 'Position', [0.63 0.84 0.08 0.03], ...
                                      'Enable', 'off');
 
         % Phase Noise
         data.chk_pn = uicontrol('Style', 'checkbox', 'String', 'Phase Noise', ...
-                                'Units', 'normalized', 'Position', [0.52 0.76 0.20 0.03], ...
+                                'Units', 'normalized', 'Position', [0.52 0.78 0.20 0.03], ...
                                 'Callback', @cb_toggle_pn);
 
         uicontrol('Style', 'text', 'String', 'PSD (dBc/Hz):', ...
-                  'Units', 'normalized', 'Position', [0.54 0.72 0.10 0.03], ...
+                  'Units', 'normalized', 'Position', [0.54 0.74 0.10 0.03], ...
                   'HorizontalAlignment', 'left');
         data.edit_pn_psd = uicontrol('Style', 'edit', 'String', '-80', ...
-                                     'Units', 'normalized', 'Position', [0.65 0.73 0.08 0.03], ...
+                                     'Units', 'normalized', 'Position', [0.65 0.75 0.08 0.03], ...
                                      'Enable', 'off');
 
         % RX IQ Imbalance
         data.chk_iq_rx = uicontrol('Style', 'checkbox', 'String', 'RX IQ Imbalance', ...
-                                   'Units', 'normalized', 'Position', [0.52 0.67 0.20 0.03], ...
+                                   'Units', 'normalized', 'Position', [0.52 0.69 0.20 0.03], ...
                                    'Callback', @cb_toggle_iq_rx);
 
         uicontrol('Style', 'text', 'String', 'Amp (dB):', ...
-                  'Units', 'normalized', 'Position', [0.54 0.63 0.08 0.03], ...
+                  'Units', 'normalized', 'Position', [0.54 0.65 0.08 0.03], ...
                   'HorizontalAlignment', 'left');
         data.edit_iq_rx_amp = uicontrol('Style', 'edit', 'String', '0.3', ...
-                                        'Units', 'normalized', 'Position', [0.63 0.64 0.06 0.03], ...
+                                        'Units', 'normalized', 'Position', [0.63 0.66 0.06 0.03], ...
                                         'Enable', 'off');
 
         uicontrol('Style', 'text', 'String', 'Phase (deg):', ...
-                  'Units', 'normalized', 'Position', [0.70 0.63 0.10 0.03], ...
+                  'Units', 'normalized', 'Position', [0.70 0.65 0.10 0.03], ...
                   'HorizontalAlignment', 'left');
         data.edit_iq_rx_phase = uicontrol('Style', 'edit', 'String', '3', ...
-                                          'Units', 'normalized', 'Position', [0.81 0.64 0.06 0.03], ...
+                                          'Units', 'normalized', 'Position', [0.81 0.66 0.06 0.03], ...
                                           'Enable', 'off');
 
         % ADC Quantization
         data.chk_adc = uicontrol('Style', 'checkbox', 'String', 'ADC Quantization', ...
-                                 'Units', 'normalized', 'Position', [0.52 0.58 0.20 0.03], ...
+                                 'Units', 'normalized', 'Position', [0.52 0.60 0.20 0.03], ...
                                  'Callback', @cb_toggle_adc);
 
         uicontrol('Style', 'text', 'String', 'Bits:', ...
-                  'Units', 'normalized', 'Position', [0.54 0.54 0.08 0.03], ...
+                  'Units', 'normalized', 'Position', [0.54 0.56 0.08 0.03], ...
                   'HorizontalAlignment', 'left');
         data.edit_adc_bits = uicontrol('Style', 'edit', 'String', '8', ...
-                                       'Units', 'normalized', 'Position', [0.63 0.55 0.06 0.03], ...
+                                       'Units', 'normalized', 'Position', [0.63 0.57 0.06 0.03], ...
                                        'Enable', 'off');
 
         % ===== Quick Presets =====
         uicontrol('Style', 'text', 'String', 'Quick Presets:', ...
                   'FontWeight', 'bold', ...
-                  'Units', 'normalized', 'Position', [0.52 0.47 0.15 0.03], ...
+                  'Units', 'normalized', 'Position', [0.52 0.50 0.15 0.03], ...
                   'HorizontalAlignment', 'left');
 
         uicontrol('Style', 'pushbutton', 'String', 'All OFF', ...
-                  'Units', 'normalized', 'Position', [0.52 0.43 0.10 0.03], ...
+                  'Units', 'normalized', 'Position', [0.52 0.46 0.10 0.03], ...
                   'Callback', @cb_preset_off);
 
         uicontrol('Style', 'pushbutton', 'String', 'PA Only', ...
-                  'Units', 'normalized', 'Position', [0.63 0.43 0.10 0.03], ...
+                  'Units', 'normalized', 'Position', [0.63 0.46 0.10 0.03], ...
                   'Callback', @cb_preset_pa);
 
         uicontrol('Style', 'pushbutton', 'String', 'All ON', ...
-                  'Units', 'normalized', 'Position', [0.74 0.43 0.10 0.03], ...
+                  'Units', 'normalized', 'Position', [0.74 0.46 0.10 0.03], ...
                   'Callback', @cb_preset_all);
 
         % ===== Control Buttons =====
@@ -217,25 +243,32 @@ function ftn_sim_gui()
                   'FontWeight', 'bold', ...
                   'ForegroundColor', [0 0.5 0], ...
                   'Units', 'normalized', ...
-                  'Position', [0.35 0.30 0.30 0.06], ...
+                  'Position', [0.30 0.29 0.40 0.06], ...
                   'Callback', @cb_run_simulation);
 
         % ===== Status Display =====
         data.txt_status = uicontrol('Style', 'text', ...
-                                    'String', 'Ready', ...
+                                    'String', 'Ready to simulate', ...
                                     'FontSize', 10, ...
+                                    'FontWeight', 'bold', ...
+                                    'ForegroundColor', [0 0.5 0], ...
                                     'Units', 'normalized', ...
-                                    'Position', [0.02 0.25 0.96 0.03], ...
+                                    'Position', [0.02 0.24 0.96 0.03], ...
                                     'HorizontalAlignment', 'left');
 
-        % ===== Results Display =====
-        data.txt_results = uicontrol('Style', 'text', ...
-                                     'String', '', ...
+        % ===== Results Display (Table) =====
+        uicontrol('Style', 'text', 'String', 'Results:', ...
+                  'FontWeight', 'bold', ...
+                  'Units', 'normalized', 'Position', [0.02 0.20 0.10 0.03], ...
+                  'HorizontalAlignment', 'left');
+
+        data.txt_results = uicontrol('Style', 'listbox', ...
+                                     'String', {''}, ...
+                                     'FontName', 'FixedWidth', ...
                                      'FontSize', 9, ...
                                      'Units', 'normalized', ...
-                                     'Position', [0.02 0.02 0.96 0.22], ...
-                                     'HorizontalAlignment', 'left', ...
-                                     'BackgroundColor', [0.95 0.95 0.95]);
+                                     'Position', [0.02 0.02 0.96 0.17], ...
+                                     'HorizontalAlignment', 'left');
     end
 
 
@@ -315,7 +348,7 @@ function ftn_sim_gui()
         set(data.chk_pn, 'Value', 0); cb_toggle_pn();
         set(data.chk_iq_rx, 'Value', 0); cb_toggle_iq_rx();
         set(data.chk_adc, 'Value', 0); cb_toggle_adc();
-        set(data.txt_status, 'String', 'Preset: All impairments OFF');
+        set(data.txt_status, 'String', 'Preset: All impairments OFF', 'ForegroundColor', [0 0.5 0]);
         guidata(hFig, data);
     end
 
@@ -323,7 +356,7 @@ function ftn_sim_gui()
         data = guidata(hFig);
         cb_preset_off();
         set(data.chk_pa, 'Value', 1); cb_toggle_pa();
-        set(data.txt_status, 'String', 'Preset: PA saturation only');
+        set(data.txt_status, 'String', 'Preset: PA saturation only', 'ForegroundColor', [0 0.5 0]);
         guidata(hFig, data);
     end
 
@@ -336,7 +369,7 @@ function ftn_sim_gui()
         set(data.chk_pn, 'Value', 1); cb_toggle_pn();
         set(data.chk_iq_rx, 'Value', 1); cb_toggle_iq_rx();
         set(data.chk_adc, 'Value', 1); cb_toggle_adc();
-        set(data.txt_status, 'String', 'Preset: All impairments ON');
+        set(data.txt_status, 'String', 'Preset: All impairments ON', 'ForegroundColor', [0 0.5 0]);
         guidata(hFig, data);
     end
 
@@ -344,14 +377,14 @@ function ftn_sim_gui()
         data = guidata(hFig);
 
         if data.sim_running
-            set(data.txt_status, 'String', 'Simulation already running...');
+            set(data.txt_status, 'String', 'Simulation already running...', 'ForegroundColor', [0.8 0.5 0]);
             return;
         end
 
         data.sim_running = true;
         guidata(hFig, data);
 
-        set(data.txt_status, 'String', 'Reading configuration...');
+        set(data.txt_status, 'String', 'Reading configuration...', 'ForegroundColor', [0 0 0.8]);
         drawnow;
 
         % Read configuration from GUI
@@ -359,16 +392,31 @@ function ftn_sim_gui()
 
         % Run simulation
         try
-            set(data.txt_status, 'String', 'Running simulation... Please wait...');
+            set(data.txt_status, 'String', 'Running simulation... Please wait...', 'ForegroundColor', [0.8 0 0]);
             drawnow;
 
-            run_ftn_simulation(config);
+            [snr_range, ber_results] = run_ftn_simulation(config, data);
 
-            set(data.txt_status, 'String', 'Simulation complete! Check figure and results.');
+            % Store results
+            data.results.snr = snr_range;
+            data.results.ber = ber_results;
+            guidata(hFig, data);
+
+            % Display results
+            display_results(snr_range, ber_results);
+
+            % Plot results
+            plot_results(snr_range, ber_results, config);
+
+            set(data.txt_status, 'String', 'Simulation complete! Check Results and Figure.', 'ForegroundColor', [0 0.5 0]);
 
         catch ME
-            set(data.txt_status, 'String', ['Error: ' ME.message]);
-            rethrow(ME);
+            set(data.txt_status, 'String', ['Error: ' ME.message], 'ForegroundColor', [0.8 0 0]);
+            fprintf('Error: %s\n', ME.message);
+            fprintf('Stack:\n');
+            for k = 1:length(ME.stack)
+                fprintf('  %s (line %d)\n', ME.stack(k).name, ME.stack(k).line);
+            end
         end
 
         data.sim_running = false;
@@ -381,7 +429,14 @@ function ftn_sim_gui()
         % FTN parameters
         config.tau = str2double(get(data.edit_tau, 'String'));
         config.l_frac = str2double(get(data.edit_lfrac, 'String'));
-        config.n_train = str2double(get(data.edit_ntrain, 'String'));
+        config.n_test = str2double(get(data.edit_ntest, 'String'));
+        config.n_window = str2double(get(data.edit_nwindow, 'String'));
+
+        % SNR range
+        snr_start = str2double(get(data.edit_snr_start, 'String'));
+        snr_end = str2double(get(data.edit_snr_end, 'String'));
+        snr_step = str2double(get(data.edit_snr_step, 'String'));
+        config.snr_range = snr_start:snr_step:snr_end;
 
         % PA
         config.pa_saturation.enabled = logical(get(data.chk_pa, 'Value'));
@@ -430,44 +485,161 @@ function ftn_sim_gui()
         config.adc_quantization.full_scale = 1.0;
     end
 
-    function run_ftn_simulation(config)
-        % Actually run the simulation (simplified version)
+    function [snr_range, ber_results] = run_ftn_simulation(config, data)
+        % Run the actual FTN BER simulation
 
-        % Print configuration
-        fprintf('\n========================================\n');
-        fprintf('FTN SIMULATION (GUI Mode)\n');
-        fprintf('========================================\n');
-        fprintf('tau=%.2f, L=%d, N_train=%d\n', config.tau, config.l_frac, config.n_train);
+        % Fixed FTN parameters
+        beta = 0.35;
+        sps = 10;
+        span = 6;
 
-        % This would call the actual simulation code
-        % For now, just print that it would run
-        fprintf('\nImpairments Configuration:\n');
-        if config.pa_saturation.enabled
-            fprintf('  PA: %s, IBO=%d dB\n', config.pa_saturation.model, config.pa_saturation.IBO_dB);
+        % Generate SRRC pulse
+        t_vec = -span*sps : span*sps;
+        t_norm = t_vec / sps;
+        h_srrc = zeros(size(t_norm));
+
+        for i = 1:length(t_norm)
+            t = t_norm(i);
+            if t == 0
+                h_srrc(i) = 1 - beta + 4*beta/pi;
+            elseif abs(t) == 1/(4*beta)
+                h_srrc(i) = (beta/sqrt(2)) * ((1+2/pi)*sin(pi/(4*beta)) + (1-2/pi)*cos(pi/(4*beta)));
+            else
+                num = sin(pi*t*(1-beta)) + 4*beta*t*cos(pi*t*(1+beta));
+                den = pi*t*(1 - (4*beta*t)^2);
+                h_srrc(i) = num / den;
+            end
         end
-        if config.iq_imbalance_tx.enabled
-            fprintf('  TX IQ Imbalance: %.1f dB, %.1f deg\n', config.iq_imbalance_tx.amp_dB, config.iq_imbalance_tx.phase_deg);
+        h_srrc = h_srrc / sqrt(sum(h_srrc.^2));
+        delay = span * sps;
+
+        % Simulation parameters
+        step = round(config.tau * sps);
+        snr_range = config.snr_range;
+        ber_results = zeros(size(snr_range));
+
+        % Run BER for each SNR
+        for idx = 1:length(snr_range)
+            snr_db = snr_range(idx);
+
+            % Update status
+            set(data.txt_status, 'String', sprintf('Simulating SNR = %d dB (%d/%d)...', ...
+                snr_db, idx, length(snr_range)), 'ForegroundColor', [0.8 0 0]);
+            drawnow;
+
+            % Generate data with impairments
+            [rx_mf, bits] = generate_ftn_data_with_impairments(config.n_test, snr_db, ...
+                config.tau, sps, h_srrc, delay, config);
+
+            % Fractional detection
+            ber_results(idx) = detect_fractional(rx_mf, bits, step, delay, config.n_window, config.l_frac);
+        end
+    end
+
+    function [rx_mf, bits] = generate_ftn_data_with_impairments(n_symbols, snr_db, ...
+            tau, sps, h_srrc, delay, config)
+
+        % Generate bits and symbols
+        bits = randi([0 1], n_symbols, 1);
+        symbols = 2*bits - 1;  % BPSK
+
+        % FTN upsampling
+        step = round(tau * sps);
+        tx_up = zeros(n_symbols * step, 1);
+        tx_up(1:step:end) = symbols;
+
+        % Pulse shaping
+        tx_shaped = conv(tx_up, h_srrc, 'same');
+
+        % Apply TX impairments
+        tx_impaired = impairments(tx_shaped, config, 'tx');
+
+        % AWGN channel
+        EbN0 = 10^(snr_db/10);
+        noise_power = 1 / (2 * EbN0);
+        noise = sqrt(noise_power) * (randn(size(tx_impaired)) + 1j*randn(size(tx_impaired)));
+        rx_noisy = tx_impaired + noise;
+
+        % Apply RX impairments
+        rx_impaired = impairments(rx_noisy, config, 'rx');
+
+        % Matched filter
+        rx_mf = conv(rx_impaired, h_srrc, 'full');
+        rx_mf = rx_mf / std(rx_mf);
+    end
+
+    function ber = detect_fractional(rx_mf, bits, step, delay, n_window, l_frac)
+        % Fractional sampling detection
+
+        frac_step = max(1, round(step / l_frac));
+        total_delay = 2 * delay;
+        n_symbols = length(bits);
+
+        bits_hat = zeros(n_symbols, 1);
+        valid_count = 0;
+
+        for k = 1:n_symbols
+            center_idx = total_delay + k * step;
+
+            % Extract fractional samples
+            frac_samples = [];
+            for offset = -n_window:n_window
+                idx = center_idx + offset * frac_step;
+                if idx > 0 && idx <= length(rx_mf)
+                    frac_samples = [frac_samples; real(rx_mf(idx))];
+                end
+            end
+
+            % Decision
+            if ~isempty(frac_samples)
+                decision_stat = mean(frac_samples);
+                bits_hat(k) = decision_stat > 0;
+                valid_count = valid_count + 1;
+            end
         end
 
-        fprintf('\nSimulation would run here...\n');
-        fprintf('For full simulation, use ftn_sim_configurable.m\n');
-        fprintf('========================================\n');
+        % Calculate BER
+        if valid_count > 0
+            ber = sum(bits_hat ~= bits) / n_symbols;
+        else
+            ber = 0.5;  % Worst case
+        end
+    end
 
-        % Update results display
+    function display_results(snr_range, ber_results)
         data = guidata(hFig);
-        results_text = sprintf(['Configuration Summary:\n' ...
-                               'tau = %.2f, L = %d\n' ...
-                               'PA: %s\n' ...
-                               'TX IQ: %s\n' ...
-                               'RX IQ: %s\n\n' ...
-                               'Use ftn_sim_configurable.m for full simulation'], ...
-                               config.tau, config.l_frac, ...
-                               mat2str(config.pa_saturation.enabled), ...
-                               mat2str(config.iq_imbalance_tx.enabled), ...
-                               mat2str(config.iq_imbalance_rx.enabled));
 
-        set(data.txt_results, 'String', results_text);
+        % Format results as table
+        results_str = cell(length(snr_range) + 2, 1);
+        results_str{1} = 'SNR (dB) | BER';
+        results_str{2} = '---------|---------------';
+
+        for i = 1:length(snr_range)
+            results_str{i+2} = sprintf('  %2d     | %.2e', snr_range(i), ber_results(i));
+        end
+
+        set(data.txt_results, 'String', results_str);
         guidata(hFig, data);
+    end
+
+    function plot_results(snr_range, ber_results, config)
+        % Create new figure for BER plot
+        figure('Name', 'BER Results', 'NumberTitle', 'off', 'Position', [150 150 800 600]);
+
+        semilogy(snr_range, ber_results, 'bo-', 'LineWidth', 2, 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+        grid on;
+        xlabel('SNR (dB)', 'FontSize', 12);
+        ylabel('Bit Error Rate', 'FontSize', 12);
+
+        % Title with configuration
+        title_str = sprintf('FTN BER Performance (\\tau=%.2f, L=%d)', config.tau, config.l_frac);
+        if config.pa_saturation.enabled
+            title_str = [title_str sprintf('\nPA: %s (IBO=%ddB)', config.pa_saturation.model, config.pa_saturation.IBO_dB)];
+        end
+        title(title_str, 'FontSize', 12, 'FontWeight', 'bold');
+
+        ylim([1e-5 1]);
+        xlim([min(snr_range)-1 max(snr_range)+1]);
     end
 
 end
