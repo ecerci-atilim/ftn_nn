@@ -426,7 +426,7 @@ function [X, y] = extract_features(rx, bits, symbol_indices, offsets)
             % Bounds checking
             valid_idx = (indices > 0) & (indices <= length(rx));
             if all(valid_idx)
-                X(i, :) = rx(indices);
+                X(i, :) = real(rx(indices));  % Take real part for BPSK
                 y(i) = bits(k);
             end
         end
@@ -462,7 +462,7 @@ function [X_struct, y] = extract_structured_features(rx, bits, symbol_indices, s
                 indices = neighbor_center + local_window;
 
                 if all(indices > 0 & indices <= length(rx))
-                    X_struct(r, :, 1, i) = rx(indices);
+                    X_struct(r, :, 1, i) = real(rx(indices));  % Take real part for BPSK
                 end
             end
 
