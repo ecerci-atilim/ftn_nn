@@ -543,11 +543,11 @@ end
 function bits_hat = detect_fc(X, net)
     % Detect using FC network
     probs = predict(net, X);
-    bits_hat = (probs(:,2) > 0.5)';
+    bits_hat = (probs(:,2) > 0.5);  % Column vector to match valid_bits
 end
 
 function bits_hat = detect_cnn(X_struct, net)
     % Detect using CNN
     probs = predict(net, X_struct);
-    bits_hat = (probs(:,2) > 0.5)';
+    bits_hat = (probs(:,2) > 0.5);  % Column vector to match valid_bits
 end
