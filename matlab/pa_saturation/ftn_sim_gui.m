@@ -625,15 +625,14 @@ function ftn_sim_gui()
         % Fractional sampling detection
 
         frac_step = max(1, round(step / l_frac));
-        total_delay = 2 * delay;
         n_symbols = length(bits);
 
         bits_hat = zeros(n_symbols, 1);
         valid_count = 0;
 
         for k = 1:n_symbols
-            % Symbol timing: first symbol at total_delay + 1, then spaced by step
-            center_idx = total_delay + 1 + (k-1) * step;
+            % Symbol timing (matches reference: delay + 1 + (k-1)*step)
+            center_idx = delay + 1 + (k-1) * step;
 
             % Extract fractional samples
             frac_samples = [];

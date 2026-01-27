@@ -125,14 +125,13 @@ end
 % Symbol-Rate Sampling Detector (Classical)
 function [bits_hat, BER] = detect_symbol_rate(rx_mf, bits, tau, sps, delay, N_window)
     step = round(tau * sps);
-    total_delay = 2 * delay;
     N_sym = length(bits);
 
     bits_hat = zeros(N_sym, 1);
 
     for k = 1:N_sym
-        % Sample at symbol rate
-        center_idx = total_delay + 1 + (k-1) * step;  % MATLAB 1-based indexing
+        % Sample at symbol rate (matches reference: delay + 1 + (k-1)*step)
+        center_idx = delay + 1 + (k-1) * step;
 
         if center_idx > 0 && center_idx <= length(rx_mf)
             % Simple threshold detection on symbol-rate sample
@@ -147,13 +146,13 @@ end
 function [bits_hat, BER] = detect_fractional(rx_mf, bits, tau, sps, delay, N_window, L_frac)
     step = round(tau * sps);
     frac_step = round(step / L_frac);  % Fractional spacing
-    total_delay = 2 * delay;
     N_sym = length(bits);
 
     bits_hat = zeros(N_sym, 1);
 
     for k = 1:N_sym
-        center_idx = total_delay + 1 + (k-1) * step;  % MATLAB 1-based indexing
+        % Sample at symbol rate (matches reference: delay + 1 + (k-1)*step)
+        center_idx = delay + 1 + (k-1) * step;
 
         % Extract fractional samples around symbol time
         frac_samples = [];
