@@ -36,9 +36,16 @@ function y_out = pa_models(x_in, model_type, params)
 
             r = abs(x_in);
             phi = angle(x_in);
+            
+            % NUMERICAL SAFEGUARD: Clamp input to prevent extreme values
+            r = min(r, 100 * params.Asat);
+            
+            % NUMERICAL SAFEGUARD: Prevent overflow in power calculation
+            r_norm = r / params.Asat;
+            r_norm = min(r_norm, 50);  % Limit normalized ratio
 
             % Rapp AM/AM conversion
-            r_out = params.G * r ./ (1 + (r / params.Asat).^(2*params.p)).^(1/(2*params.p));
+            r_out = params.G * r ./ (1 + r_norm.^(2*params.p)).^(1/(2*params.p));
 
             % No AM/PM (phase distortion) in basic Rapp model
             y_out = r_out .* exp(1j * phi);
@@ -59,12 +66,17 @@ function y_out = pa_models(x_in, model_type, params)
 
             r = abs(x_in);
             phi = angle(x_in);
+            
+            % NUMERICAL SAFEGUARD: Prevent extremely large inputs
+            r = min(r, 100);
 
-            % Saleh AM/AM conversion
-            r_out = params.alpha_a * r ./ (1 + params.beta_a * r.^2);
+            % Saleh AM/AM conversion with numerical safeguard
+            denom_am = max(1 + params.beta_a * r.^2, eps);  % Prevent division by zero
+            r_out = params.alpha_a * r ./ denom_am;
 
-            % Saleh AM/PM conversion (phase distortion)
-            phi_out = phi + params.alpha_p * r.^2 ./ (1 + params.beta_p * r.^2);
+            % Saleh AM/PM conversion (phase distortion) with safeguard
+            denom_pm = max(1 + params.beta_p * r.^2, eps);
+            phi_out = phi + params.alpha_p * r.^2 ./ denom_pm;
 
             y_out = r_out .* exp(1j * phi_out);
 
@@ -88,11 +100,16 @@ function y_out = pa_models(x_in, model_type, params)
 
             r = abs(x_in);
             phi = angle(x_in);
+            
+            % NUMERICAL SAFEGUARD: Prevent extremely large inputs
+            r = min(r, 100 * params.A_sat);
 
             r_out = zeros(size(r));
 
             % Compute the continuous saturation output level
-            A_out_sat = params.A_lin + (params.A_sat - params.A_lin) * params.compress;
+            % NUMERICAL SAFEGUARD: Ensure compress factor is valid
+            compress = max(min(params.compress, 1), 0);
+            A_out_sat = params.A_lin + (params.A_sat - params.A_lin) * compress;
 
             % Linear region
             linear_idx = r <= params.A_lin;
@@ -101,7 +118,7 @@ function y_out = pa_models(x_in, model_type, params)
             % Transition region (soft compression)
             transition_idx = (r > params.A_lin) & (r < params.A_sat);
             r_out(transition_idx) = params.A_lin + ...
-                (r(transition_idx) - params.A_lin) * params.compress;
+                (r(transition_idx) - params.A_lin) * compress;
 
             % Saturation region (continuous with transition region)
             sat_idx = r >= params.A_sat;
