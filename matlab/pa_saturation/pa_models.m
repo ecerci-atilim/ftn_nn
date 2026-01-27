@@ -2,10 +2,11 @@ function y_out = pa_models(x_in, model_type, params)
 % PA_MODELS - Power Amplifier Nonlinearity Models
 %
 % Implements various PA saturation models for communication systems
+% with numerical safeguards to prevent NaN/Inf issues.
 %
 % Inputs:
 %   x_in       - Input signal (complex baseband)
-%   model_type - Type of PA model: 'rapp', 'saleh', 'soft_limiter'
+%   model_type - Type of PA model: 'rapp', 'saleh', 'soft_limiter', 'none'
 %   params     - Structure with model parameters
 %
 % Output:
@@ -20,7 +21,18 @@ function y_out = pa_models(x_in, model_type, params)
 % Author: Emre Cerci
 % Date: January 2026
 
+    % Handle empty input
+    if isempty(x_in)
+        y_out = x_in;
+        return;
+    end
+
     switch lower(model_type)
+        case 'none'
+            % Bypass PA model
+            y_out = x_in;
+            return;
+            
         case 'rapp'
             % Rapp Model (Solid State Power Amplifier)
             % y(r) = G * r / (1 + (r/Asat)^(2p))^(1/(2p))
@@ -33,12 +45,22 @@ function y_out = pa_models(x_in, model_type, params)
             if ~isfield(params, 'G'), params.G = 1; end
             if ~isfield(params, 'Asat'), params.Asat = 1; end
             if ~isfield(params, 'p'), params.p = 2; end
+            
+            % Numerical safeguards
+            params.Asat = max(params.Asat, eps);  % Prevent division by zero
+            params.p = max(params.p, 0.1);        % Minimum smoothness
 
             r = abs(x_in);
             phi = angle(x_in);
+            
+            % Prevent overflow: clip very large values
+            r = min(r, 100 * params.Asat);
 
-            % Rapp AM/AM conversion
-            r_out = params.G * r ./ (1 + (r / params.Asat).^(2*params.p)).^(1/(2*params.p));
+            % Rapp AM/AM conversion with numerical stability
+            ratio = r / params.Asat;
+            ratio_power = ratio.^(2*params.p);
+            ratio_power = min(ratio_power, 1e10);  % Prevent overflow
+            r_out = params.G * r ./ (1 + ratio_power).^(1/(2*params.p));
 
             % No AM/PM (phase distortion) in basic Rapp model
             y_out = r_out .* exp(1j * phi);
@@ -56,15 +78,24 @@ function y_out = pa_models(x_in, model_type, params)
             if ~isfield(params, 'beta_a'), params.beta_a = 1.0; end
             if ~isfield(params, 'alpha_p'), params.alpha_p = pi/3; end
             if ~isfield(params, 'beta_p'), params.beta_p = 1.0; end
+            
+            % Numerical safeguards
+            params.beta_a = max(params.beta_a, eps);
+            params.beta_p = max(params.beta_p, eps);
 
             r = abs(x_in);
             phi = angle(x_in);
+            
+            % Clip very large values
+            r = min(r, 1e6);
+            r_sq = r.^2;
+            r_sq = min(r_sq, 1e12);  % Prevent overflow
 
             % Saleh AM/AM conversion
-            r_out = params.alpha_a * r ./ (1 + params.beta_a * r.^2);
+            r_out = params.alpha_a * r ./ (1 + params.beta_a * r_sq);
 
             % Saleh AM/PM conversion (phase distortion)
-            phi_out = phi + params.alpha_p * r.^2 ./ (1 + params.beta_p * r.^2);
+            phi_out = phi + params.alpha_p * r_sq ./ (1 + params.beta_p * r_sq);
 
             y_out = r_out .* exp(1j * phi_out);
 
