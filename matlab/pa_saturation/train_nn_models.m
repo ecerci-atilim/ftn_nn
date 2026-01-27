@@ -156,7 +156,12 @@ opts = trainingOptions('adam', ...
 %% TRAIN ALL ARCHITECTURES
 %% ========================================================================
 
-fprintf('[2/2] Training architectures...\n\n');
+total_models = 20;  % Total number of models to train
+fprintf('[2/2] Training %d architectures...\n\n', total_models);
+
+% Create progress bar
+hWait = waitbar(0, 'Initializing...', 'Name', 'Training NN Models');
+training_start = tic;
 
 models = {};
 model_idx = 0;
@@ -167,7 +172,8 @@ model_idx = 0;
 
 % 1. FC_Shallow
 model_idx = model_idx + 1;
-fprintf('  [%02d] FC_Shallow (7->32->2)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'FC_Shallow', training_start);
+fprintf('  [%02d/%02d] FC_Shallow (7->32->2)... ', model_idx, total_models);
 tic;
 layers = [
     featureInputLayer(7)
@@ -184,7 +190,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 2. FC_Standard
 model_idx = model_idx + 1;
-fprintf('  [%02d] FC_Standard (7->64->32->2)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'FC_Standard', training_start);
+fprintf('  [%02d/%02d] FC_Standard (7->64->32->2)... ', model_idx, total_models);
 tic;
 layers = [
     featureInputLayer(7)
@@ -206,7 +213,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 3. FC_Deep
 model_idx = model_idx + 1;
-fprintf('  [%02d] FC_Deep (7->64->32->16->8->2)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'FC_Deep', training_start);
+fprintf('  [%02d/%02d] FC_Deep (7->64->32->16->8->2)... ', model_idx, total_models);
 tic;
 layers = [
     featureInputLayer(7)
@@ -232,7 +240,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 4. FC_Wide
 model_idx = model_idx + 1;
-fprintf('  [%02d] FC_Wide (7->256->128->2)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'FC_Wide', training_start);
+fprintf('  [%02d/%02d] FC_Wide (7->256->128->2)... ', model_idx, total_models);
 tic;
 layers = [
     featureInputLayer(7)
@@ -254,7 +263,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 5. FC_Bottleneck
 model_idx = model_idx + 1;
-fprintf('  [%02d] FC_Bottleneck (7->128->16->128->2)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'FC_Bottleneck', training_start);
+fprintf('  [%02d/%02d] FC_Bottleneck (7->128->16->128->2)... ', model_idx, total_models);
 tic;
 layers = [
     featureInputLayer(7)
@@ -286,7 +296,8 @@ opts.ValidationData = {X_1d_val, y_fc_val};
 
 % 6. CNN1D_Simple
 model_idx = model_idx + 1;
-fprintf('  [%02d] CNN1D_Simple (Conv3->Conv3->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'CNN1D_Simple', training_start);
+fprintf('  [%02d/%02d] CNN1D_Simple (Conv3->Conv3->FC)... ', model_idx, total_models);
 tic;
 layers = [
     imageInputLayer([7 1 1], 'Normalization', 'none')
@@ -307,7 +318,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 7. CNN1D_Deep
 model_idx = model_idx + 1;
-fprintf('  [%02d] CNN1D_Deep (Conv3->Conv3->Conv3->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'CNN1D_Deep', training_start);
+fprintf('  [%02d/%02d] CNN1D_Deep (Conv3->Conv3->Conv3->FC)... ', model_idx, total_models);
 tic;
 layers = [
     imageInputLayer([7 1 1], 'Normalization', 'none')
@@ -337,7 +349,8 @@ opts.ValidationData = {X_cnn_val, y_cnn_val};
 
 % 8. CNN2D_Standard
 model_idx = model_idx + 1;
-fprintf('  [%02d] CNN2D_Standard (Conv1x7->Conv7x1->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'CNN2D_Standard', training_start);
+fprintf('  [%02d/%02d] CNN2D_Standard (Conv1x7->Conv7x1->FC)... ', model_idx, total_models);
 tic;
 layers = [
     imageInputLayer([7 7 1], 'Normalization', 'none')
@@ -357,7 +370,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 9. CNN2D_Deep
 model_idx = model_idx + 1;
-fprintf('  [%02d] CNN2D_Deep (Conv1x7->Conv1x7->Conv7x1->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'CNN2D_Deep', training_start);
+fprintf('  [%02d/%02d] CNN2D_Deep (Conv1x7->Conv1x7->Conv7x1->FC)... ', model_idx, total_models);
 tic;
 layers = [
     imageInputLayer([7 7 1], 'Normalization', 'none')
@@ -380,7 +394,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 10. CNN2D_Wide
 model_idx = model_idx + 1;
-fprintf('  [%02d] CNN2D_Wide (Conv1x7x64->Conv7x1x32->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'CNN2D_Wide', training_start);
+fprintf('  [%02d/%02d] CNN2D_Wide (Conv1x7x64->Conv7x1x32->FC)... ', model_idx, total_models);
 tic;
 layers = [
     imageInputLayer([7 7 1], 'Normalization', 'none')
@@ -400,7 +415,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 11. CNN2D_MultiScale (different kernel sizes)
 model_idx = model_idx + 1;
-fprintf('  [%02d] CNN2D_3x3 (Conv3x3->Conv3x3->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'CNN2D_3x3', training_start);
+fprintf('  [%02d/%02d] CNN2D_3x3 (Conv3x3->Conv3x3->FC)... ', model_idx, total_models);
 tic;
 layers = [
     imageInputLayer([7 7 1], 'Normalization', 'none')
@@ -444,7 +460,8 @@ opts_seq = trainingOptions('adam', ...
 
 % 12. LSTM_Simple
 model_idx = model_idx + 1;
-fprintf('  [%02d] LSTM_Simple (LSTM32->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'LSTM_Simple', training_start);
+fprintf('  [%02d/%02d] LSTM_Simple (LSTM32->FC)... ', model_idx, total_models);
 tic;
 layers = [
     sequenceInputLayer(1)
@@ -459,7 +476,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 13. BiLSTM
 model_idx = model_idx + 1;
-fprintf('  [%02d] BiLSTM (BiLSTM32->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'BiLSTM', training_start);
+fprintf('  [%02d/%02d] BiLSTM (BiLSTM32->FC)... ', model_idx, total_models);
 tic;
 layers = [
     sequenceInputLayer(1)
@@ -474,7 +492,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 14. LSTM_Deep
 model_idx = model_idx + 1;
-fprintf('  [%02d] LSTM_Deep (LSTM32->LSTM16->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'LSTM_Deep', training_start);
+fprintf('  [%02d/%02d] LSTM_Deep (LSTM32->LSTM16->FC)... ', model_idx, total_models);
 tic;
 layers = [
     sequenceInputLayer(1)
@@ -495,7 +514,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 15. GRU_Simple
 model_idx = model_idx + 1;
-fprintf('  [%02d] GRU_Simple (GRU32->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'GRU_Simple', training_start);
+fprintf('  [%02d/%02d] GRU_Simple (GRU32->FC)... ', model_idx, total_models);
 tic;
 layers = [
     sequenceInputLayer(1)
@@ -510,7 +530,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 16. GRU_Deep
 model_idx = model_idx + 1;
-fprintf('  [%02d] GRU_Deep (GRU64->GRU32->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'GRU_Deep', training_start);
+fprintf('  [%02d/%02d] GRU_Deep (GRU64->GRU32->FC)... ', model_idx, total_models);
 tic;
 layers = [
     sequenceInputLayer(1)
@@ -527,7 +548,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 17. BiGRU (Bidirectional GRU)
 model_idx = model_idx + 1;
-fprintf('  [%02d] BiGRU (BiGRU32->FC)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'BiGRU', training_start);
+fprintf('  [%02d/%02d] BiGRU (BiGRU32->FC)... ', model_idx, total_models);
 tic;
 layers = [
     sequenceInputLayer(1)
@@ -549,7 +571,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 18. FC with SGD+Momentum
 model_idx = model_idx + 1;
-fprintf('  [%02d] FC_SGDM (SGD with Momentum)... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'FC_SGDM', training_start);
+fprintf('  [%02d/%02d] FC_SGDM (SGD with Momentum)... ', model_idx, total_models);
 tic;
 layers = [
     featureInputLayer(7)
@@ -581,7 +604,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 19. FC with RMSProp
 model_idx = model_idx + 1;
-fprintf('  [%02d] FC_RMSProp... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'FC_RMSProp', training_start);
+fprintf('  [%02d/%02d] FC_RMSProp... ', model_idx, total_models);
 tic;
 opts_rmsprop = trainingOptions('rmsprop', ...
     'MaxEpochs', max_epochs, ...
@@ -600,7 +624,8 @@ fprintf('done (%.1fs)\n', toc);
 
 % 20. FC with Adam + Learning Rate Schedule
 model_idx = model_idx + 1;
-fprintf('  [%02d] FC_Adam_LRSchedule... ', model_idx);
+update_progress(hWait, model_idx, total_models, 'FC_Adam_LRSchedule', training_start);
+fprintf('  [%02d/%02d] FC_Adam_LRSchedule... ', model_idx, total_models);
 tic;
 opts_adam_lr = trainingOptions('adam', ...
     'MaxEpochs', max_epochs, ...
@@ -673,9 +698,14 @@ summary_file = fullfile(output_dir, sprintf('training_summary_%s.mat', timestamp
 save(summary_file, 'summary', '-v7.3');
 fprintf('  Summary: %s\n', summary_file);
 
+% Close progress bar
+close(hWait);
+total_time = toc(training_start);
+
 fprintf('\n========================================\n');
 fprintf('Training Complete!\n');
 fprintf('  Models saved: %d\n', length(models));
+fprintf('  Total time: %.1f minutes\n', total_time/60);
 fprintf('  Output folder: %s\n', output_dir);
 fprintf('  Timestamp: %s\n', timestamp);
 fprintf('========================================\n');
@@ -811,4 +841,21 @@ function model = save_lstm_model(name, net, mu, sig, offsets, info)
     model.norm_sig = sig;
     model.offsets = offsets;
     model.info = info;
+end
+
+function update_progress(hWait, current, total, model_name, start_time)
+    % Update the progress bar with current status
+    progress = (current - 1) / total;  % Progress before current model
+    elapsed = toc(start_time);
+    
+    if current > 1
+        avg_time = elapsed / (current - 1);
+        remaining = avg_time * (total - current + 1);
+        eta_str = sprintf('ETA: %.1f min', remaining / 60);
+    else
+        eta_str = 'Estimating...';
+    end
+    
+    waitbar(progress, hWait, sprintf('Training %s (%d/%d) - %.0f%% - %s', ...
+        model_name, current, total, progress*100, eta_str));
 end
