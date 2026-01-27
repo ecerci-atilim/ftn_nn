@@ -55,7 +55,16 @@ for i = 1:length(filenames)
     fullpath = fullfile(filepath, filenames{i});
     data = load(fullpath);
     models{i} = data.model;
-    fprintf('  Loaded: %s (Type: %s)\n', models{i}.name, models{i}.type);
+    
+    % Display model info
+    fprintf('  [%d] %s\n', i, models{i}.name);
+    fprintf('      Type: %s\n', models{i}.type);
+    if isfield(models{i}, 'info') && isfield(models{i}.info, 'architecture')
+        fprintf('      Architecture: %s\n', models{i}.info.architecture);
+    end
+    if isfield(models{i}, 'training_date')
+        fprintf('      Trained: %s\n', models{i}.training_date);
+    end
 end
 fprintf('\n');
 

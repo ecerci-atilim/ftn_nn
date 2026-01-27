@@ -38,7 +38,9 @@ clear; clc; close all;
 %% CONFIGURATION
 %% ========================================================================
 
-output_dir = 'trained_models';
+% Create timestamped output folder
+timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+output_dir = fullfile('trained_models', sprintf('run_%s', timestamp));
 if ~exist(output_dir, 'dir')
     mkdir(output_dir);
 end
@@ -63,6 +65,7 @@ mini_batch = 512;
 fprintf('========================================\n');
 fprintf('FTN NN Architecture Comparison\n');
 fprintf('========================================\n');
+fprintf('Timestamp: %s\n', timestamp);
 fprintf('tau = %.2f, PA: %s (IBO=%ddB)\n', tau, PA_MODEL, IBO_dB);
 fprintf('Training: %d symbols @ SNR=%ddB\n', N_train, SNR_train);
 fprintf('Output: %s/\n', output_dir);
@@ -477,20 +480,59 @@ fprintf('done (%.1fs)\n', toc);
 %% ========================================================================
 
 fprintf('\nSaving models...\n');
-config = struct('tau', tau, 'beta', beta, 'sps', sps, 'span', span, ...
-    'PA_MODEL', PA_MODEL, 'IBO_dB', IBO_dB, 'PA_ENABLED', PA_ENABLED, ...
-    'SNR_train', SNR_train, 'N_train', N_train);
+
+% Comprehensive configuration
+config = struct();
+config.tau = tau;
+config.beta = beta;
+config.sps = sps;
+config.span = span;
+config.PA_MODEL = PA_MODEL;
+config.IBO_dB = IBO_dB;
+config.PA_ENABLED = PA_ENABLED;
+config.SNR_train = SNR_train;
+config.N_train = N_train;
+config.max_epochs = max_epochs;
+config.mini_batch = mini_batch;
+config.timestamp = timestamp;
+config.training_date = datestr(now, 'yyyy-mm-dd HH:MM:SS');
 
 for i = 1:length(models)
+    % Add comprehensive metadata to each model
     models{i}.config = config;
+    models{i}.timestamp = timestamp;
+    models{i}.training_date = config.training_date;
+    models{i}.model_index = i;
+    models{i}.total_models = length(models);
+    
     model = models{i};
-    filename = fullfile(output_dir, sprintf('%s.mat', model.name));
+    
+    % Filename with timestamp and key parameters
+    filename = fullfile(output_dir, sprintf('%s_tau%.1f_SNR%d_%s.mat', ...
+        model.name, tau, SNR_train, timestamp));
     save(filename, 'model', '-v7.3');
     fprintf('  Saved: %s\n', filename);
 end
 
+% Save a summary file with all model names and configurations
+summary = struct();
+summary.timestamp = timestamp;
+summary.training_date = config.training_date;
+summary.config = config;
+summary.model_names = cellfun(@(m) m.name, models, 'UniformOutput', false);
+summary.model_types = cellfun(@(m) m.type, models, 'UniformOutput', false);
+summary.model_architectures = cellfun(@(m) m.info.architecture, models, 'UniformOutput', false);
+summary.output_dir = output_dir;
+
+summary_file = fullfile(output_dir, sprintf('training_summary_%s.mat', timestamp));
+save(summary_file, 'summary', '-v7.3');
+fprintf('  Summary: %s\n', summary_file);
+
 fprintf('\n========================================\n');
-fprintf('Training Complete! %d models saved.\n', length(models));
+fprintf('Training Complete!\n');
+fprintf('  Models saved: %d\n', length(models));
+fprintf('  Output folder: %s\n', output_dir);
+fprintf('  Timestamp: %s\n', timestamp);
 fprintf('========================================\n');
 
 %% ========================================================================
