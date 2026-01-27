@@ -30,6 +30,7 @@ function signal_out = impairments(signal_in, config, stage)
 %
 %   config.phase_noise.enabled = true/false
 %   config.phase_noise.psd_dBc_Hz = -80
+%   config.phase_noise.f_offset = 10e3  (reference offset frequency, default 10 kHz)
 %   config.phase_noise.fs = 1e6
 %
 %   config.iq_imbalance_rx.enabled = true/false
@@ -163,14 +164,35 @@ end
 
 function y = apply_phase_noise(x, cfg)
     % Apply Phase Noise (Wiener process model)
-    % φ[n] = φ[n-1] + Δφ[n], where Δφ[n] ~ N(0, σ²)
+    %
+    % For a Lorentzian phase noise spectrum with single-sideband PSD L(f) at offset f:
+    %     L(f) = Δν / (π·f²)  where Δν is the 3dB linewidth
+    %
+    % Given PSD in dBc/Hz at a reference offset frequency f_offset:
+    %     Δν = π · f_offset² · 10^(L(f_offset)/10)
+    %
+    % Wiener process model:
+    %     φ[n] = φ[n-1] + Δφ[n], where Δφ[n] ~ N(0, σ²)
+    %     σ² = 2π · Δν / fs
 
     psd_dBc_Hz = cfg.psd_dBc_Hz;
     fs = cfg.fs;
 
-    % Convert PSD to variance (simplified)
-    f_3dB = 10^(psd_dBc_Hz / 10);
-    sigma_phi = sqrt(2 * pi * f_3dB / fs);
+    % Reference offset frequency (default 10 kHz if not specified)
+    if isfield(cfg, 'f_offset')
+        f_offset = cfg.f_offset;
+    else
+        f_offset = 10e3;
+    end
+
+    % Convert PSD at offset frequency to 3dB linewidth
+    % For Lorentzian spectrum: L(f) = Δν / (π·f²)
+    % Therefore: Δν = π · f² · L(f) where L(f) is in linear scale
+    L_linear = 10^(psd_dBc_Hz / 10);
+    linewidth_hz = pi * (f_offset^2) * L_linear;
+
+    % Wiener process variance per sample
+    sigma_phi = sqrt(2 * pi * linewidth_hz / fs);
 
     % Generate phase noise (Wiener process)
     phase_noise = cumsum(randn(size(x)) * sigma_phi);
@@ -227,6 +249,7 @@ function config = get_default_config()
 
     config.phase_noise.enabled = false;
     config.phase_noise.psd_dBc_Hz = -80;
+    config.phase_noise.f_offset = 10e3;  % Reference offset frequency in Hz
     config.phase_noise.fs = 1e6;
 
     config.iq_imbalance_rx.enabled = false;

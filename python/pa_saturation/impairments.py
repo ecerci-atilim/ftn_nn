@@ -57,8 +57,9 @@ class ImpairmentChain:
             },
             'phase_noise': {
                 'enabled': False,
-                'psd_dBc_Hz': -80,  # Phase noise PSD in dBc/Hz
-                'fs': 1e6            # Sampling frequency
+                'psd_dBc_Hz': -80,  # Phase noise PSD in dBc/Hz at f_offset
+                'f_offset': 10e3,   # Reference offset frequency in Hz (default 10 kHz)
+                'fs': 1e6           # Sampling frequency
             },
             'dac_quantization': {
                 'enabled': False,
@@ -151,6 +152,9 @@ class ImpairmentChain:
         """
         PA with memory effects (simplified Volterra/Memory Polynomial)
         y[n] = PA(x[n]) + sum_k alpha_k * PA(x[n-k])
+
+        Memory polynomial coefficients model the PA's response to past inputs,
+        capturing effects like thermal memory and charge storage.
         """
         depth = cfg.get('memory_depth', 3)
 
@@ -158,13 +162,14 @@ class ImpairmentChain:
         y = apply_pa_model(signal, cfg['model'], pa_params)
 
         # Memory components (simplified - use delayed versions)
+        # Default coefficients decrease with delay depth
         memory_coeffs = np.array([0.05, 0.03, 0.01])[:depth]
 
-        for k in range(1, depth + 1):
-            if k < len(memory_coeffs):
-                delayed = np.roll(signal, k)
-                delayed[:k] = 0
-                y += memory_coeffs[k-1] * apply_pa_model(delayed, cfg['model'], pa_params)
+        # Apply each memory tap
+        for k, coeff in enumerate(memory_coeffs, start=1):
+            delayed = np.roll(signal, k)
+            delayed[:k] = 0  # Zero out the wrapped-around samples
+            y += coeff * apply_pa_model(delayed, cfg['model'], pa_params)
 
         return y
 
@@ -198,18 +203,29 @@ class ImpairmentChain:
         """
         Apply phase noise (Wiener process model)
 
-        φ[n] = φ[n-1] + Δφ[n], where Δφ[n] ~ N(0, σ²)
-        σ² = 2π · f_3dB / fs
+        For a Lorentzian phase noise spectrum with single-sideband PSD L(f) at offset f:
+            L(f) = Δν / (π·f²)  where Δν is the 3dB linewidth
+
+        Given PSD in dBc/Hz at a reference offset frequency f_offset:
+            Δν = π · f_offset² · 10^(L(f_offset)/10)
+
+        Wiener process model:
+            φ[n] = φ[n-1] + Δφ[n], where Δφ[n] ~ N(0, σ²)
+            σ² = 2π · Δν / fs
         """
         cfg = self.config['phase_noise']
         psd_dBc_Hz = cfg['psd_dBc_Hz']
         fs = cfg.get('fs', 1e6)
+        f_offset = cfg.get('f_offset', 10e3)  # Reference offset frequency (default 10 kHz)
 
-        # Convert PSD to variance
-        # For simplicity, use approximate relationship
-        # f_3dB ≈ 10^(PSD/10) (very simplified!)
-        f_3dB = 10 ** (psd_dBc_Hz / 10)
-        sigma_phi = np.sqrt(2 * np.pi * f_3dB / fs)
+        # Convert PSD at offset frequency to 3dB linewidth
+        # For Lorentzian spectrum: L(f) = Δν / (π·f²)
+        # Therefore: Δν = π · f² · L(f) where L(f) is in linear scale
+        L_linear = 10 ** (psd_dBc_Hz / 10)
+        linewidth_hz = np.pi * (f_offset ** 2) * L_linear
+
+        # Wiener process variance per sample
+        sigma_phi = np.sqrt(2 * np.pi * linewidth_hz / fs)
 
         # Generate phase noise (Wiener process)
         phase_noise = np.cumsum(np.random.randn(len(signal)) * sigma_phi)

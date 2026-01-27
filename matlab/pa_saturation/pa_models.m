@@ -69,15 +69,18 @@ function y_out = pa_models(x_in, model_type, params)
             y_out = r_out .* exp(1j * phi_out);
 
         case 'soft_limiter'
-            % Soft Limiter (Simple Clipping)
-            % y(r) = r              if r <= A_lin
-            %      = A_lin + (r - A_lin) * compression_factor   if A_lin < r < A_sat
-            %      = A_sat           if r >= A_sat
+            % Soft Limiter (Simple Clipping with Continuous Transition)
+            % y(r) = r                                      if r <= A_lin
+            %      = A_lin + (r - A_lin) * compress         if A_lin < r < A_sat
+            %      = A_lin + (A_sat - A_lin) * compress     if r >= A_sat (continuous)
             %
             % Parameters:
             %   A_lin    - Linear region threshold (default: 0.7)
-            %   A_sat    - Saturation level (default: 1.0)
+            %   A_sat    - Input threshold for saturation (default: 1.0)
             %   compress - Compression factor in transition (default: 0.1)
+            %
+            % Note: The saturation output level ensures continuity at r = A_sat:
+            %       A_out_max = A_lin + (A_sat - A_lin) * compress
 
             if ~isfield(params, 'A_lin'), params.A_lin = 0.7; end
             if ~isfield(params, 'A_sat'), params.A_sat = 1.0; end
@@ -88,6 +91,9 @@ function y_out = pa_models(x_in, model_type, params)
 
             r_out = zeros(size(r));
 
+            % Compute the continuous saturation output level
+            A_out_sat = params.A_lin + (params.A_sat - params.A_lin) * params.compress;
+
             % Linear region
             linear_idx = r <= params.A_lin;
             r_out(linear_idx) = r(linear_idx);
@@ -97,9 +103,9 @@ function y_out = pa_models(x_in, model_type, params)
             r_out(transition_idx) = params.A_lin + ...
                 (r(transition_idx) - params.A_lin) * params.compress;
 
-            % Saturation region
+            % Saturation region (continuous with transition region)
             sat_idx = r >= params.A_sat;
-            r_out(sat_idx) = params.A_sat;
+            r_out(sat_idx) = A_out_sat;
 
             y_out = r_out .* exp(1j * phi);
 
