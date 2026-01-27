@@ -1,25 +1,33 @@
-%% TRAIN_NN_MODELS - Generate Various Trained Neural Networks for FTN Detection
+%% TRAIN_NN_MODELS - Train Various NN Architectures for FTN Detection
 %
-% This script trains multiple NN architectures for FTN detection with PA saturation
-% and saves them to .mat files for later testing and comparison.
+% This script trains multiple NN ARCHITECTURES with the SAME input size
+% to compare their effectiveness for FTN detection with PA saturation.
 %
-% Why Dense Fractional Underperforms:
-% -----------------------------------
-% 1. CURSE OF DIMENSIONALITY: 15 inputs vs 7 inputs requires exponentially more
-%    training data to learn the same mapping quality.
+% All FC models use 7 neighbor samples (symbol-rate)
+% All CNN models use 7x7 structured input
 %
-% 2. REDUNDANT INFORMATION: T/7 spaced samples are highly correlated (same pulse
-%    shape region). More samples ≠ more information, just more noise.
+% Architectures Compared:
+% -----------------------
+% FC Variants:
+%   1. FC_Shallow:     7 -> 32 -> 2 (minimal)
+%   2. FC_Standard:    7 -> 64 -> 32 -> 2 (baseline)
+%   3. FC_Deep:        7 -> 64 -> 32 -> 16 -> 8 -> 2 (deeper)
+%   4. FC_Wide:        7 -> 256 -> 128 -> 2 (wider)
+%   5. FC_Bottleneck:  7 -> 128 -> 16 -> 128 -> 2 (compress then expand)
 %
-% 3. NOISE AMPLIFICATION: Each additional sample adds noise. FC networks can't
-%    exploit the correlation structure to filter it.
+% 1D-CNN Variants (treat 7 samples as 1D signal):
+%   6. CNN1D_Simple:   Conv1D(3) -> Conv1D(3) -> FC
+%   7. CNN1D_Deep:     Conv1D(3) -> Conv1D(3) -> Conv1D(3) -> FC
 %
-% 4. STRUCTURED CNN WINS: Its architecture matches ISI physics:
-%    - Conv(1×7): Process each symbol's local samples (denoising)
-%    - Conv(7×1): Combine across symbols (ISI cancellation)
+% 2D-CNN Variants (7x7 structured input):
+%   8. CNN2D_Standard: Conv(1x7) -> Conv(7x1) -> FC (baseline)
+%   9. CNN2D_Deep:     Conv(1x7) -> Conv(1x7) -> Conv(7x1) -> FC
+%  10. CNN2D_Parallel: [Conv(1x3) || Conv(1x5) || Conv(1x7)] -> Concat -> Conv(7x1)
+%  11. CNN2D_ResNet:   Conv + Skip connections
 %
-% Key Insight: The STRUCTURE of how you process samples matters more than
-% the NUMBER of samples. Fractional works when properly structured.
+% LSTM/BiLSTM (treat 7 samples as sequence):
+%  12. LSTM_Simple:    LSTM(32) -> FC
+%  13. BiLSTM:         BiLSTM(32) -> FC
 %
 % Author: Emre Cerci
 % Date: January 2026
@@ -30,7 +38,6 @@ clear; clc; close all;
 %% CONFIGURATION
 %% ========================================================================
 
-% Output directory for trained models
 output_dir = 'trained_models';
 if ~exist(output_dir, 'dir')
     mkdir(output_dir);
@@ -48,68 +55,35 @@ IBO_dB = 3;
 PA_ENABLED = true;
 
 % Training Parameters
-SNR_train = 10;             % Training SNR
-N_train = 100000;           % Training symbols
-
-% Models to train (each entry is a configuration)
-models_to_train = {
-    % Name, Type, Architecture/Params, Offsets
-    struct('name', 'Neighbor_FC_small',    'type', 'fc',  'hidden', [32, 16],    'offset_type', 'neighbor');
-    struct('name', 'Neighbor_FC_medium',   'type', 'fc',  'hidden', [64, 32],    'offset_type', 'neighbor');
-    struct('name', 'Neighbor_FC_large',    'type', 'fc',  'hidden', [128, 64],   'offset_type', 'neighbor');
-    struct('name', 'Neighbor_FC_deep',     'type', 'fc',  'hidden', [64, 32, 16], 'offset_type', 'neighbor');
-    struct('name', 'Frac_T2_FC_medium',    'type', 'fc',  'hidden', [64, 32],    'offset_type', 'frac_t2');
-    struct('name', 'Frac_T3_FC_medium',    'type', 'fc',  'hidden', [64, 32],    'offset_type', 'frac_t3');
-    struct('name', 'Hybrid_FC_medium',     'type', 'fc',  'hidden', [64, 32],    'offset_type', 'hybrid');
-    struct('name', 'Struct_CNN_small',     'type', 'cnn', 'filters', [16, 8],    'offset_type', 'structured');
-    struct('name', 'Struct_CNN_medium',    'type', 'cnn', 'filters', [32, 16],   'offset_type', 'structured');
-    struct('name', 'Struct_CNN_large',     'type', 'cnn', 'filters', [64, 32],   'offset_type', 'structured');
-};
+SNR_train = 10;
+N_train = 100000;
+max_epochs = 50;
+mini_batch = 512;
 
 fprintf('========================================\n');
-fprintf('FTN NN Model Training Suite\n');
+fprintf('FTN NN Architecture Comparison\n');
 fprintf('========================================\n');
 fprintf('tau = %.2f, PA: %s (IBO=%ddB)\n', tau, PA_MODEL, IBO_dB);
 fprintf('Training: %d symbols @ SNR=%ddB\n', N_train, SNR_train);
-fprintf('Models to train: %d\n', length(models_to_train));
-fprintf('Output directory: %s\n', output_dir);
+fprintf('Output: %s/\n', output_dir);
 fprintf('========================================\n\n');
 
 %% ========================================================================
 %% SETUP
 %% ========================================================================
 
-% Pulse shaping filter
 h = rcosdesign(beta, span, sps, 'sqrt');
 h = h / norm(h);
 delay = span * sps;
 step = round(tau * sps);
 
-% PA parameters
 IBO_lin = 10^(IBO_dB/10);
-switch lower(PA_MODEL)
-    case 'rapp'
-        pa_params.G = 1;
-        pa_params.Asat = sqrt(IBO_lin);
-        pa_params.p = 2;
-    case 'saleh'
-        pa_params.alpha_a = 2.0;
-        pa_params.beta_a = 1.0 / IBO_lin;
-        pa_params.alpha_p = pi/3;
-        pa_params.beta_p = 1.0 / IBO_lin;
-    case 'soft_limiter'
-        pa_params.A_lin = sqrt(IBO_lin) * 0.7;
-        pa_params.A_sat = sqrt(IBO_lin);
-        pa_params.compress = 0.1;
-end
+pa_params.G = 1;
+pa_params.Asat = sqrt(IBO_lin);
+pa_params.p = 2;
 
-% Compute all offset types
-offsets = struct();
-offsets.neighbor = (-3:3) * step;                           % 7 samples, symbol-rate
-offsets.frac_t2 = round((-3:3) * step / 2);                 % 7 samples, T/2 spacing
-offsets.frac_t3 = round((-4:4) * step / 3);                 % 9 samples, T/3 spacing
-t1 = round(step/3); t2 = round(2*step/3);
-offsets.hybrid = [-step, -t2, -t1, 0, t1, t2, step];        % 7 samples, mixed
+% Standard offsets: 7 neighbor samples at symbol rate
+offsets_neighbor = (-3:3) * step;
 
 %% ========================================================================
 %% GENERATE TRAINING DATA
@@ -120,70 +94,403 @@ rng(42);
 bits_train = randi([0 1], 1, N_train);
 [rx_train, sym_idx_train] = generate_ftn_rx(bits_train, tau, sps, h, delay, ...
     SNR_train, PA_ENABLED, PA_MODEL, pa_params);
-fprintf('  Done. rx length = %d samples\n\n', length(rx_train));
+
+% Extract features for FC/1D-CNN/LSTM (7 samples)
+[X_fc, y_fc] = extract_features(rx_train, bits_train, sym_idx_train, offsets_neighbor);
+[X_fc_norm, mu_fc, sig_fc] = normalize_features(X_fc);
+
+% Extract features for 2D-CNN (7x7 matrix)
+[X_cnn2d, y_cnn2d] = extract_structured_features(rx_train, bits_train, sym_idx_train, step);
+
+fprintf('  FC input: %d samples x %d features\n', size(X_fc_norm, 1), size(X_fc_norm, 2));
+fprintf('  CNN2D input: %dx%dx1x%d\n', size(X_cnn2d, 1), size(X_cnn2d, 2), size(X_cnn2d, 4));
+fprintf('\n');
 
 %% ========================================================================
-%% TRAIN EACH MODEL
+%% DEFINE MODEL ARCHITECTURES
 %% ========================================================================
 
-fprintf('[2/2] Training models...\n\n');
+% Split data for validation
+n = size(X_fc_norm, 1);
+idx = randperm(n);
+n_val = round(0.1 * n);
 
-for m = 1:length(models_to_train)
-    cfg = models_to_train{m};
-    fprintf('  [%d/%d] Training: %s\n', m, length(models_to_train), cfg.name);
-    
-    tic;
-    
-    if strcmp(cfg.type, 'fc')
-        % Fully Connected Network
-        off = offsets.(cfg.offset_type);
-        [X, y] = extract_features(rx_train, bits_train, sym_idx_train, off);
-        [X_norm, mu, sig] = normalize_features(X);
-        
-        net = train_fc_network(X_norm, y, cfg.hidden);
-        
-        % Save model
-        model = struct();
-        model.name = cfg.name;
-        model.type = 'fc';
-        model.network = net;
-        model.norm_mu = mu;
-        model.norm_sig = sig;
-        model.offsets = off;
-        model.hidden_sizes = cfg.hidden;
-        model.config = struct('tau', tau, 'beta', beta, 'sps', sps, 'span', span, ...
-            'PA_MODEL', PA_MODEL, 'IBO_dB', IBO_dB, 'PA_ENABLED', PA_ENABLED, ...
-            'SNR_train', SNR_train, 'N_train', N_train);
-        
-    elseif strcmp(cfg.type, 'cnn')
-        % Structured CNN
-        [X_struct, y] = extract_structured_features(rx_train, bits_train, sym_idx_train, step);
-        
-        net = train_cnn_network(X_struct, y, cfg.filters);
-        
-        % Save model
-        model = struct();
-        model.name = cfg.name;
-        model.type = 'cnn';
-        model.network = net;
-        model.step = step;
-        model.filters = cfg.filters;
-        model.config = struct('tau', tau, 'beta', beta, 'sps', sps, 'span', span, ...
-            'PA_MODEL', PA_MODEL, 'IBO_dB', IBO_dB, 'PA_ENABLED', PA_ENABLED, ...
-            'SNR_train', SNR_train, 'N_train', N_train);
-    end
-    
-    % Save to file
-    filename = fullfile(output_dir, sprintf('%s.mat', cfg.name));
+X_fc_val = X_fc_norm(idx(1:n_val), :);
+y_fc_val = categorical(y_fc(idx(1:n_val)));
+X_fc_tr = X_fc_norm(idx(n_val+1:end), :);
+y_fc_tr = categorical(y_fc(idx(n_val+1:end)));
+
+X_cnn_val = X_cnn2d(:,:,:,idx(1:n_val));
+y_cnn_val = categorical(y_cnn2d(idx(1:n_val)));
+X_cnn_tr = X_cnn2d(:,:,:,idx(n_val+1:end));
+y_cnn_tr = categorical(y_cnn2d(idx(n_val+1:end)));
+
+% Training options
+opts = trainingOptions('adam', ...
+    'MaxEpochs', max_epochs, ...
+    'MiniBatchSize', mini_batch, ...
+    'ValidationFrequency', 50, ...
+    'ValidationPatience', 10, ...
+    'Shuffle', 'every-epoch', ...
+    'Verbose', false, ...
+    'Plots', 'none');
+
+%% ========================================================================
+%% TRAIN ALL ARCHITECTURES
+%% ========================================================================
+
+fprintf('[2/2] Training architectures...\n\n');
+
+models = {};
+model_idx = 0;
+
+% =========================================================================
+% FC VARIANTS (7 inputs)
+% =========================================================================
+
+% 1. FC_Shallow
+model_idx = model_idx + 1;
+fprintf('  [%02d] FC_Shallow (7->32->2)... ', model_idx);
+tic;
+layers = [
+    featureInputLayer(7)
+    fullyConnectedLayer(32)
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+opts.ValidationData = {X_fc_val, y_fc_val};
+net = trainNetwork(X_fc_tr, y_fc_tr, layers, opts);
+models{end+1} = save_fc_model('FC_Shallow', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', '7->32->2'));
+fprintf('done (%.1fs)\n', toc);
+
+% 2. FC_Standard
+model_idx = model_idx + 1;
+fprintf('  [%02d] FC_Standard (7->64->32->2)... ', model_idx);
+tic;
+layers = [
+    featureInputLayer(7)
+    fullyConnectedLayer(64)
+    batchNormalizationLayer
+    reluLayer
+    dropoutLayer(0.2)
+    fullyConnectedLayer(32)
+    batchNormalizationLayer
+    reluLayer
+    dropoutLayer(0.2)
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_fc_tr, y_fc_tr, layers, opts);
+models{end+1} = save_fc_model('FC_Standard', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', '7->64->32->2'));
+fprintf('done (%.1fs)\n', toc);
+
+% 3. FC_Deep
+model_idx = model_idx + 1;
+fprintf('  [%02d] FC_Deep (7->64->32->16->8->2)... ', model_idx);
+tic;
+layers = [
+    featureInputLayer(7)
+    fullyConnectedLayer(64)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(32)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(16)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(8)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_fc_tr, y_fc_tr, layers, opts);
+models{end+1} = save_fc_model('FC_Deep', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', '7->64->32->16->8->2'));
+fprintf('done (%.1fs)\n', toc);
+
+% 4. FC_Wide
+model_idx = model_idx + 1;
+fprintf('  [%02d] FC_Wide (7->256->128->2)... ', model_idx);
+tic;
+layers = [
+    featureInputLayer(7)
+    fullyConnectedLayer(256)
+    batchNormalizationLayer
+    reluLayer
+    dropoutLayer(0.3)
+    fullyConnectedLayer(128)
+    batchNormalizationLayer
+    reluLayer
+    dropoutLayer(0.3)
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_fc_tr, y_fc_tr, layers, opts);
+models{end+1} = save_fc_model('FC_Wide', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', '7->256->128->2'));
+fprintf('done (%.1fs)\n', toc);
+
+% 5. FC_Bottleneck
+model_idx = model_idx + 1;
+fprintf('  [%02d] FC_Bottleneck (7->128->16->128->2)... ', model_idx);
+tic;
+layers = [
+    featureInputLayer(7)
+    fullyConnectedLayer(128)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(16)  % Bottleneck
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(128)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_fc_tr, y_fc_tr, layers, opts);
+models{end+1} = save_fc_model('FC_Bottleneck', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', '7->128->16->128->2'));
+fprintf('done (%.1fs)\n', toc);
+
+% =========================================================================
+% 1D-CNN VARIANTS (7 inputs treated as 1D signal)
+% =========================================================================
+
+% Reshape for 1D CNN: [height=7, width=1, channels=1, samples]
+X_1d_tr = reshape(X_fc_tr', [7, 1, 1, size(X_fc_tr, 1)]);
+X_1d_val = reshape(X_fc_val', [7, 1, 1, size(X_fc_val, 1)]);
+opts.ValidationData = {X_1d_val, y_fc_val};
+
+% 6. CNN1D_Simple
+model_idx = model_idx + 1;
+fprintf('  [%02d] CNN1D_Simple (Conv3->Conv3->FC)... ', model_idx);
+tic;
+layers = [
+    imageInputLayer([7 1 1], 'Normalization', 'none')
+    convolution2dLayer([3 1], 32, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    convolution2dLayer([3 1], 16, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    flattenLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_1d_tr, y_fc_tr, layers, opts);
+models{end+1} = save_cnn1d_model('CNN1D_Simple', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', 'Conv3x32->Conv3x16->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% 7. CNN1D_Deep
+model_idx = model_idx + 1;
+fprintf('  [%02d] CNN1D_Deep (Conv3->Conv3->Conv3->FC)... ', model_idx);
+tic;
+layers = [
+    imageInputLayer([7 1 1], 'Normalization', 'none')
+    convolution2dLayer([3 1], 32, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    convolution2dLayer([3 1], 32, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    convolution2dLayer([3 1], 16, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    flattenLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_1d_tr, y_fc_tr, layers, opts);
+models{end+1} = save_cnn1d_model('CNN1D_Deep', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', 'Conv3x32->Conv3x32->Conv3x16->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% =========================================================================
+% 2D-CNN VARIANTS (7x7 structured input)
+% =========================================================================
+
+opts.ValidationData = {X_cnn_val, y_cnn_val};
+
+% 8. CNN2D_Standard
+model_idx = model_idx + 1;
+fprintf('  [%02d] CNN2D_Standard (Conv1x7->Conv7x1->FC)... ', model_idx);
+tic;
+layers = [
+    imageInputLayer([7 7 1], 'Normalization', 'none')
+    convolution2dLayer([1 7], 32, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    convolution2dLayer([7 1], 16, 'Padding', 0)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_cnn_tr, y_cnn_tr, layers, opts);
+models{end+1} = save_cnn2d_model('CNN2D_Standard', net, step, ...
+    struct('architecture', 'Conv1x7x32->Conv7x1x16->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% 9. CNN2D_Deep
+model_idx = model_idx + 1;
+fprintf('  [%02d] CNN2D_Deep (Conv1x7->Conv1x7->Conv7x1->FC)... ', model_idx);
+tic;
+layers = [
+    imageInputLayer([7 7 1], 'Normalization', 'none')
+    convolution2dLayer([1 7], 32, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    convolution2dLayer([1 7], 32, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    convolution2dLayer([7 1], 16, 'Padding', 0)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_cnn_tr, y_cnn_tr, layers, opts);
+models{end+1} = save_cnn2d_model('CNN2D_Deep', net, step, ...
+    struct('architecture', 'Conv1x7x32->Conv1x7x32->Conv7x1x16->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% 10. CNN2D_Wide
+model_idx = model_idx + 1;
+fprintf('  [%02d] CNN2D_Wide (Conv1x7x64->Conv7x1x32->FC)... ', model_idx);
+tic;
+layers = [
+    imageInputLayer([7 7 1], 'Normalization', 'none')
+    convolution2dLayer([1 7], 64, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    convolution2dLayer([7 1], 32, 'Padding', 0)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_cnn_tr, y_cnn_tr, layers, opts);
+models{end+1} = save_cnn2d_model('CNN2D_Wide', net, step, ...
+    struct('architecture', 'Conv1x7x64->Conv7x1x32->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% 11. CNN2D_MultiScale (different kernel sizes)
+model_idx = model_idx + 1;
+fprintf('  [%02d] CNN2D_3x3 (Conv3x3->Conv3x3->FC)... ', model_idx);
+tic;
+layers = [
+    imageInputLayer([7 7 1], 'Normalization', 'none')
+    convolution2dLayer([3 3], 32, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    maxPooling2dLayer([2 2], 'Stride', 1, 'Padding', 'same')
+    convolution2dLayer([3 3], 64, 'Padding', 'same')
+    batchNormalizationLayer
+    reluLayer
+    globalAveragePooling2dLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_cnn_tr, y_cnn_tr, layers, opts);
+models{end+1} = save_cnn2d_model('CNN2D_3x3', net, step, ...
+    struct('architecture', 'Conv3x3x32->Pool->Conv3x3x64->GAP->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% =========================================================================
+% LSTM VARIANTS (7 inputs treated as sequence)
+% =========================================================================
+
+% Reshape for LSTM: [sequence_length=7, features=1, samples]
+X_seq_tr = permute(reshape(X_fc_tr', [7, 1, size(X_fc_tr, 1)]), [1, 2, 3]);
+X_seq_val = permute(reshape(X_fc_val', [7, 1, size(X_fc_val, 1)]), [1, 2, 3]);
+
+% Convert to cell array for sequence input
+X_seq_tr_cell = squeeze(num2cell(X_seq_tr, [1 2]))';
+X_seq_val_cell = squeeze(num2cell(X_seq_val, [1 2]))';
+
+opts_seq = trainingOptions('adam', ...
+    'MaxEpochs', max_epochs, ...
+    'MiniBatchSize', mini_batch, ...
+    'ValidationData', {X_seq_val_cell, y_fc_val}, ...
+    'ValidationFrequency', 50, ...
+    'ValidationPatience', 10, ...
+    'Shuffle', 'every-epoch', ...
+    'Verbose', false, ...
+    'Plots', 'none');
+
+% 12. LSTM_Simple
+model_idx = model_idx + 1;
+fprintf('  [%02d] LSTM_Simple (LSTM32->FC)... ', model_idx);
+tic;
+layers = [
+    sequenceInputLayer(1)
+    lstmLayer(32, 'OutputMode', 'last')
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_seq_tr_cell, y_fc_tr, layers, opts_seq);
+models{end+1} = save_lstm_model('LSTM_Simple', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', 'LSTM32->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% 13. BiLSTM
+model_idx = model_idx + 1;
+fprintf('  [%02d] BiLSTM (BiLSTM32->FC)... ', model_idx);
+tic;
+layers = [
+    sequenceInputLayer(1)
+    bilstmLayer(32, 'OutputMode', 'last')
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_seq_tr_cell, y_fc_tr, layers, opts_seq);
+models{end+1} = save_lstm_model('BiLSTM', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', 'BiLSTM32->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% 14. LSTM_Deep
+model_idx = model_idx + 1;
+fprintf('  [%02d] LSTM_Deep (LSTM32->LSTM16->FC)... ', model_idx);
+tic;
+layers = [
+    sequenceInputLayer(1)
+    lstmLayer(32, 'OutputMode', 'sequence')
+    dropoutLayer(0.2)
+    lstmLayer(16, 'OutputMode', 'last')
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_seq_tr_cell, y_fc_tr, layers, opts_seq);
+models{end+1} = save_lstm_model('LSTM_Deep', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', 'LSTM32->LSTM16->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+%% ========================================================================
+%% SAVE ALL MODELS
+%% ========================================================================
+
+fprintf('\nSaving models...\n');
+config = struct('tau', tau, 'beta', beta, 'sps', sps, 'span', span, ...
+    'PA_MODEL', PA_MODEL, 'IBO_dB', IBO_dB, 'PA_ENABLED', PA_ENABLED, ...
+    'SNR_train', SNR_train, 'N_train', N_train);
+
+for i = 1:length(models)
+    models{i}.config = config;
+    model = models{i};
+    filename = fullfile(output_dir, sprintf('%s.mat', model.name));
     save(filename, 'model', '-v7.3');
-    
-    elapsed = toc;
-    fprintf('        Saved: %s (%.1fs)\n', filename, elapsed);
+    fprintf('  Saved: %s\n', filename);
 end
 
 fprintf('\n========================================\n');
-fprintf('Training Complete!\n');
-fprintf('Models saved to: %s/\n', output_dir);
+fprintf('Training Complete! %d models saved.\n', length(models));
 fprintf('========================================\n');
 
 %% ========================================================================
@@ -214,7 +521,6 @@ function [rx, symbol_indices] = generate_ftn_rx(bits, tau, sps, h, delay, SNR_dB
     
     rx_mf = conv(rx_noisy, h, 'full');
     rx = rx_mf(:)' / std(rx_mf);
-    
     symbol_indices = delay + 1 + (0:N-1) * step;
 end
 
@@ -282,75 +588,40 @@ function [X_norm, mu, sig] = normalize_features(X)
     X_norm = (X - mu) ./ sig;
 end
 
-function net = train_fc_network(X, y, hidden_sizes)
-    layers = [featureInputLayer(size(X, 2))];
-    
-    for i = 1:length(hidden_sizes)
-        layers = [layers; ...
-            fullyConnectedLayer(hidden_sizes(i)); ...
-            batchNormalizationLayer; ...
-            reluLayer; ...
-            dropoutLayer(0.2)];
-    end
-    
-    layers = [layers; ...
-        fullyConnectedLayer(2); ...
-        softmaxLayer; ...
-        classificationLayer];
-    
-    n = size(X, 1);
-    idx = randperm(n);
-    n_val = round(0.1 * n);
-    X_val = X(idx(1:n_val), :);
-    y_val = categorical(y(idx(1:n_val)));
-    X_tr = X(idx(n_val+1:end), :);
-    y_tr = categorical(y(idx(n_val+1:end)));
-    
-    options = trainingOptions('adam', ...
-        'MaxEpochs', 50, ...
-        'MiniBatchSize', 512, ...
-        'ValidationData', {X_val, y_val}, ...
-        'ValidationFrequency', 50, ...
-        'ValidationPatience', 10, ...
-        'Shuffle', 'every-epoch', ...
-        'Verbose', false, ...
-        'Plots', 'none');
-    
-    net = trainNetwork(X_tr, y_tr, layers, options);
+function model = save_fc_model(name, net, mu, sig, offsets, info)
+    model.name = name;
+    model.type = 'fc';
+    model.network = net;
+    model.norm_mu = mu;
+    model.norm_sig = sig;
+    model.offsets = offsets;
+    model.info = info;
 end
 
-function net = train_cnn_network(X_struct, y, filters)
-    layers = [
-        imageInputLayer([7 7 1], 'Normalization', 'none')
-        convolution2dLayer([1 7], filters(1), 'Padding', 'same')
-        batchNormalizationLayer
-        reluLayer
-        convolution2dLayer([7 1], filters(2), 'Padding', 0)
-        batchNormalizationLayer
-        reluLayer
-        fullyConnectedLayer(2)
-        softmaxLayer
-        classificationLayer
-    ];
-    
-    n = size(X_struct, 4);
-    idx = randperm(n);
-    n_val = round(0.1 * n);
-    
-    X_val = X_struct(:,:,:,idx(1:n_val));
-    y_val = categorical(y(idx(1:n_val)));
-    X_tr = X_struct(:,:,:,idx(n_val+1:end));
-    y_tr = categorical(y(idx(n_val+1:end)));
-    
-    options = trainingOptions('adam', ...
-        'MaxEpochs', 50, ...
-        'MiniBatchSize', 512, ...
-        'ValidationData', {X_val, y_val}, ...
-        'ValidationFrequency', 50, ...
-        'ValidationPatience', 10, ...
-        'Shuffle', 'every-epoch', ...
-        'Verbose', false, ...
-        'Plots', 'none');
-    
-    net = trainNetwork(X_tr, y_tr, layers, options);
+function model = save_cnn1d_model(name, net, mu, sig, offsets, info)
+    model.name = name;
+    model.type = 'cnn1d';
+    model.network = net;
+    model.norm_mu = mu;
+    model.norm_sig = sig;
+    model.offsets = offsets;
+    model.info = info;
+end
+
+function model = save_cnn2d_model(name, net, step, info)
+    model.name = name;
+    model.type = 'cnn2d';
+    model.network = net;
+    model.step = step;
+    model.info = info;
+end
+
+function model = save_lstm_model(name, net, mu, sig, offsets, info)
+    model.name = name;
+    model.type = 'lstm';
+    model.network = net;
+    model.norm_mu = mu;
+    model.norm_sig = sig;
+    model.offsets = offsets;
+    model.info = info;
 end
