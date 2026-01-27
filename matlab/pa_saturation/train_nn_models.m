@@ -717,22 +717,29 @@ fprintf('========================================\n');
 function [rx, symbol_indices] = generate_ftn_rx(bits, tau, sps, h, delay, SNR_dB, ...
     pa_enabled, pa_model, pa_params)
     
-    symbols = 2*bits - 1;
+    symbols = 2*bits - 1;  % BPSK
     step = round(tau * sps);
     N = length(bits);
     
-    tx_up = zeros(N * step, 1);
+    % OPTIMIZED: Use exact size needed
+    tx_up = zeros(1 + (N-1)*step, 1);
     tx_up(1:step:end) = symbols;
     tx_shaped = conv(tx_up, h, 'full');
     
     if pa_enabled
         tx_pa = pa_models(tx_shaped, pa_model, pa_params);
+        % FIXED: Force real for BPSK (PA may output complex)
+        tx_pa = real(tx_pa);
     else
         tx_pa = tx_shaped;
     end
     
+    % FIXED: Correct SNR calculation based on actual signal power
+    signal_power = mean(tx_pa.^2);
     EbN0 = 10^(SNR_dB/10);
-    noise_power = 1 / (2 * EbN0);
+    noise_power = signal_power / (2 * EbN0);
+    
+    % Real AWGN for real BPSK signal
     noise = sqrt(noise_power) * randn(size(tx_pa));
     rx_noisy = tx_pa + noise;
     

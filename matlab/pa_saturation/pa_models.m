@@ -20,6 +20,12 @@ function y_out = pa_models(x_in, model_type, params)
 % Author: Emre Cerci
 % Date: January 2026
 
+    % NUMERICAL SAFEGUARDS: Ensure input is finite
+    if any(~isfinite(x_in(:)))
+        warning('PA_MODELS: Non-finite input detected, replacing with zeros');
+        x_in(~isfinite(x_in)) = 0;
+    end
+
     switch lower(model_type)
         case 'rapp'
             % Rapp Model (Solid State Power Amplifier)
@@ -33,12 +39,24 @@ function y_out = pa_models(x_in, model_type, params)
             if ~isfield(params, 'G'), params.G = 1; end
             if ~isfield(params, 'Asat'), params.Asat = 1; end
             if ~isfield(params, 'p'), params.p = 2; end
+            
+            % NUMERICAL SAFEGUARD: Ensure Asat > 0
+            if params.Asat <= 0
+                warning('PA_MODELS: Asat must be positive, using default 1');
+                params.Asat = 1;
+            end
 
             r = abs(x_in);
             phi = angle(x_in);
-
+            
+            % NUMERICAL SAFEGUARD: Prevent division by zero for very small Asat
+            ratio = r / params.Asat;
+            ratio = min(ratio, 1e6);  % Clip extreme values
+            
             % Rapp AM/AM conversion
-            r_out = params.G * r ./ (1 + (r / params.Asat).^(2*params.p)).^(1/(2*params.p));
+            denom = (1 + ratio.^(2*params.p)).^(1/(2*params.p));
+            denom = max(denom, eps);  % Prevent division by zero
+            r_out = params.G * r ./ denom;
 
             % No AM/PM (phase distortion) in basic Rapp model
             y_out = r_out .* exp(1j * phi);
@@ -56,15 +74,23 @@ function y_out = pa_models(x_in, model_type, params)
             if ~isfield(params, 'beta_a'), params.beta_a = 1.0; end
             if ~isfield(params, 'alpha_p'), params.alpha_p = pi/3; end
             if ~isfield(params, 'beta_p'), params.beta_p = 1.0; end
+            
+            % NUMERICAL SAFEGUARDS: Ensure beta values are non-negative
+            if params.beta_a < 0, params.beta_a = 1.0; end
+            if params.beta_p < 0, params.beta_p = 1.0; end
 
             r = abs(x_in);
             phi = angle(x_in);
 
             % Saleh AM/AM conversion
-            r_out = params.alpha_a * r ./ (1 + params.beta_a * r.^2);
+            denom_a = 1 + params.beta_a * r.^2;
+            denom_a = max(denom_a, eps);  % Prevent division by zero
+            r_out = params.alpha_a * r ./ denom_a;
 
             % Saleh AM/PM conversion (phase distortion)
-            phi_out = phi + params.alpha_p * r.^2 ./ (1 + params.beta_p * r.^2);
+            denom_p = 1 + params.beta_p * r.^2;
+            denom_p = max(denom_p, eps);  % Prevent division by zero
+            phi_out = phi + params.alpha_p * r.^2 ./ denom_p;
 
             y_out = r_out .* exp(1j * phi_out);
 
@@ -111,5 +137,15 @@ function y_out = pa_models(x_in, model_type, params)
 
         otherwise
             error('Unknown PA model type: %s. Use ''rapp'', ''saleh'', or ''soft_limiter''.', model_type);
+    end
+    
+    % FINAL NUMERICAL SAFEGUARD: Ensure output is finite
+    if any(~isfinite(y_out(:)))
+        warning('PA_MODELS: Non-finite output detected, clipping to max amplitude');
+        max_amp = max(abs(y_out(isfinite(y_out))));
+        if isempty(max_amp) || max_amp == 0
+            max_amp = 1;
+        end
+        y_out(~isfinite(y_out)) = max_amp;
     end
 end
