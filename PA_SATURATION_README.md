@@ -1,8 +1,41 @@
-# FTN with Power Amplifier Saturation
+# FTN with Hardware Impairments (Comprehensive Suite)
 
 ## Project Overview
 
-This project implements **Faster-than-Nyquist (FTN) signaling with Power Amplifier (PA) saturation nonlinearity** to demonstrate the advantage of **Fractionally Spaced Equalization (FSE)** over symbol-rate sampling.
+This project implements **Faster-than-Nyquist (FTN) signaling with comprehensive hardware impairments** to demonstrate the advantage of **Fractionally Spaced Equalization (FSE)** over symbol-rate sampling in realistic communication systems.
+
+### 🎯 Key Features (v2.0)
+
+- **7 Hardware Impairments** (all toggleable on/off):
+  1. Power Amplifier (PA) Saturation (3 models: Rapp, Saleh, Soft Limiter)
+  2. IQ Imbalance (TX and RX, independent control)
+  3. Phase Noise (Wiener process model)
+  4. DAC/ADC Quantization (separate TX/RX)
+  5. Carrier Frequency Offset (CFO)
+  6. PA Memory Effects (memory polynomial)
+  7. All parameters fully configurable
+- **Easy-to-Use Interfaces**:
+  - Python: **Command-line arguments** (`--pa`, `--iq-tx`, etc.)
+  - MATLAB: **Interactive GUI** with checkboxes and sliders
+- **Complete Documentation**:
+  - `HOW_TO_USE.md` guides for both platforms
+  - Detailed theory and examples
+  - Quick-start and advanced usage
+
+### 🆕 What's New in v2.0
+
+**Compared to v1.0 (PA saturation only):**
+
+| Feature | v1.0 | v2.0 |
+|---------|------|------|
+| **Impairments** | PA only | 7 impairments |
+| **Python Interface** | Basic script | CLI with flags |
+| **MATLAB Interface** | Script only | Interactive GUI |
+| **Toggleable** | No | Yes (all on/off individually) |
+| **Save/Load Config** | No | Yes (JSON/MAT) |
+| **Documentation** | README only | HOW_TO_USE + README |
+| **Memory Effects** | No | Yes |
+| **Quick Presets** | No | Yes (MATLAB GUI) |
 
 ## Research Motivation
 
@@ -55,49 +88,85 @@ Add **PA saturation nonlinearity**:
 
 ## Implementations
 
-### 📂 MATLAB Implementation
+### 📂 MATLAB Implementation (v2.0)
 **Location:** `matlab/pa_saturation/`
 
-**Features:**
-- Classical signal processing approach
-- PA models: Rapp, Saleh, Soft Limiter
-- Symbol-rate vs Fractional detection comparison
-- Fast vectorized computation
-- Detailed visualization
+**Files:**
+- `pa_models.m` - PA saturation models
+- `impairments.m` - All hardware impairments
+- `ftn_sim_gui.m` - **Interactive GUI** ⭐
+- `ftn_with_pa_saturation.m` - Original simulation
+- `HOW_TO_USE.md` - Complete usage guide
 
-**Run:**
+**Features:**
+- ✓ **Interactive GUI** with point-and-click controls
+- ✓ All 7 impairments toggleable
+- ✓ Real-time configuration display
+- ✓ Quick presets (All OFF, PA Only, All ON)
+- ✓ Classical signal processing approach
+- ✓ Fast vectorized computation
+
+**Quick Start:**
 ```matlab
 cd matlab/pa_saturation
-ftn_with_pa_saturation
+ftn_sim_gui  % Launch GUI
 ```
 
-### 📂 Python Implementation
+**Or command-line:**
+```matlab
+ftn_with_pa_saturation  % Run original simulation
+```
+
+---
+
+### 📂 Python Implementation (v2.0)
 **Location:** `python/pa_saturation/`
 
-**Features:**
-- Neural network-based equalizers
-- Same PA models (Rapp, Saleh, Soft Limiter)
-- PyTorch implementation
-- GPU acceleration support
-- Symbol-rate NN vs Fractional NN comparison
+**Files:**
+- `pa_models.py` - PA saturation models
+- `impairments.py` - All hardware impairments (ImpairmentChain class)
+- `ftn_sim_configurable.py` - **CLI with arguments** ⭐
+- `ftn_with_pa_saturation.py` - Original simulation
+- `requirements.txt` - Dependencies
+- `HOW_TO_USE.md` - Complete usage guide
 
-**Run:**
+**Features:**
+- ✓ **Command-line interface** with flexible arguments
+- ✓ All 7 impairments toggleable via flags
+- ✓ Save/load configuration (JSON)
+- ✓ Neural network-based equalizers (PyTorch)
+- ✓ GPU acceleration support
+- ✓ Optimized training with learning rate scheduling
+
+**Quick Start:**
 ```bash
 cd python/pa_saturation
-python ftn_with_pa_saturation.py
+pip install -r requirements.txt
+
+# Run with PA only
+python ftn_sim_configurable.py --pa
+
+# Run with all impairments
+python ftn_sim_configurable.py --all
+
+# Custom configuration
+python ftn_sim_configurable.py --pa --pa-ibo 5 --iq-tx --pn
 ```
 
-## PA Saturation Models
+## Hardware Impairments (Complete Suite)
 
-### 1. Rapp Model (Solid State PA)
+### 1. PA Saturation (3 Models)
+
+#### Rapp Model (Solid State PA)
 ```
 y(r) = G·r / [1 + (r/Asat)^(2p)]^(1/2p)
 ```
 - **Type:** SSPA (Solid State Power Amplifier)
 - **Characteristics:** Smooth saturation, no phase distortion
 - **Use Case:** Modern solid-state transmitters
+- **Memoryless + Memory variants**
 
-### 2. Saleh Model (Traveling Wave Tube)
+#### Saleh Model (Traveling Wave Tube)
 ```
 AM/AM: A(r) = αa·r / (1 + βa·r²)
 AM/PM: Φ(r) = αp·r² / (1 + βp·r²)
@@ -106,13 +175,153 @@ AM/PM: Φ(r) = αp·r² / (1 + βp·r²)
 - **Characteristics:** Both amplitude and phase distortion
 - **Use Case:** Satellite communications
 
-### 3. Soft Limiter
+#### Soft Limiter
 ```
 Linear → Compression → Hard Saturation
 ```
 - **Type:** Simplified model
 - **Characteristics:** Piecewise linear
 - **Use Case:** Reference/baseline
+
+---
+
+### 2. IQ Imbalance
+
+```
+y = (1+α)·I + j·(1-α)·Q·exp(jφ)
+```
+
+**Separate TX and RX:**
+- TX IQ Imbalance: Before PA
+- RX IQ Imbalance: After channel
+
+**Parameters:**
+- Amplitude imbalance: α (dB)
+- Phase imbalance: φ (degrees)
+
+**Typical Values:**
+- Good hardware: 0.1-0.5 dB, 1-5°
+- Poor hardware: 1-2 dB, 10-15°
+
+---
+
+### 3. Phase Noise
+
+```
+φ[n] = φ[n-1] + Δφ[n], Δφ ~ N(0, σ²)
+```
+
+**Model:** Wiener process (random walk)
+
+**Parameter:** PSD in dBc/Hz
+
+**Typical Values:**
+- Excellent oscillator: -100 to -90 dBc/Hz
+- Good oscillator: -90 to -80 dBc/Hz
+- Moderate oscillator: -80 to -70 dBc/Hz
+
+---
+
+### 4. DAC/ADC Quantization
+
+```
+Uniform quantization: n_bits resolution
+```
+
+**Separate DAC and ADC:**
+- DAC: Transmitter quantization
+- ADC: Receiver quantization
+
+**Typical Values:**
+- High quality: 10-12 bits
+- Medium quality: 8 bits
+- Low quality: 4-6 bits
+
+---
+
+### 5. Carrier Frequency Offset (CFO)
+
+```
+y[n] = x[n] · exp(j·2π·Δf·n/fs)
+```
+
+**Cause:** Oscillator mismatch between TX and RX
+
+**Typical Values:**
+- Depends on oscillator accuracy (ppm)
+- For 1 GHz carrier, 10 ppm → 10 kHz CFO
+
+---
+
+### 6. PA Memory Effects
+
+```
+y[n] = PA(x[n]) + Σ αk·PA(x[n-k])
+```
+
+**Model:** Simplified memory polynomial
+
+**Effect:** Current output depends on past inputs
+
+**Use Case:** Realistic PA behavior modeling
+
+## 🎛️ Turning Impairments ON/OFF Individually
+
+### Python (Command-Line Flags)
+
+**Each impairment has its own flag:**
+
+```bash
+# Individual impairments
+--pa            # Enable PA saturation
+--iq-tx         # Enable TX IQ imbalance
+--iq-rx         # Enable RX IQ imbalance
+--pn            # Enable phase noise
+--dac           # Enable DAC quantization
+--adc           # Enable ADC quantization
+--cfo           # Enable CFO
+--pa-memory     # Enable PA memory effects
+
+# Combine as needed
+python ftn_sim_configurable.py --pa --iq-tx --pn  # PA + IQ + Phase noise only
+```
+
+**Parameters for each impairment:**
+```bash
+--pa-model {rapp,saleh,soft_limiter}  # PA model type
+--pa-ibo 3                            # PA Input Back-Off (dB)
+--iq-tx-amp 0.5                       # TX IQ amplitude imbalance (dB)
+--iq-tx-phase 5                       # TX IQ phase imbalance (deg)
+--pn-psd -80                          # Phase noise PSD (dBc/Hz)
+--dac-bits 8                          # DAC resolution
+--adc-bits 8                          # ADC resolution
+--cfo-hz 100                          # CFO in Hz
+```
+
+### MATLAB (GUI Checkboxes or Config Struct)
+
+**GUI Method (Easiest):**
+```matlab
+ftn_sim_gui  % Then check/uncheck boxes
+```
+
+**Config Struct Method:**
+```matlab
+% Set enabled = true/false for each impairment
+config.pa_saturation.enabled = true;        % ON
+config.iq_imbalance_tx.enabled = false;     % OFF
+config.dac_quantization.enabled = false;    % OFF
+config.cfo.enabled = true;                  % ON
+config.phase_noise.enabled = true;          % ON
+config.iq_imbalance_rx.enabled = false;     % OFF
+config.adc_quantization.enabled = false;    % OFF
+
+% Apply
+tx_sig = impairments(signal, config, 'tx');
+rx_sig = impairments(tx_sig, config, 'rx');
+```
+
+---
 
 ## Configuration Parameters
 
@@ -127,6 +336,7 @@ FTN Parameters:
 PA Saturation:
   - Model: Rapp/Saleh/Soft_Limiter
   - IBO = 3 dB        (Input Back-Off)
+  - Memory: ON/OFF
 
 Fractional Sampling:
   - L = 2             (T/2-spaced samples)
@@ -236,17 +446,112 @@ ftn_nn/
 
 ## Quick Start
 
-### MATLAB
+### 🎮 MATLAB (Interactive GUI)
 ```matlab
 cd matlab/pa_saturation
-ftn_with_pa_saturation  % Run simulation
+ftn_sim_gui  % Launch interactive GUI
 ```
 
-### Python
+**Or command-line:**
+```matlab
+ftn_with_pa_saturation  % Run original simulation
+```
+
+---
+
+### 🖥️ Python (Command-Line)
 ```bash
 cd python/pa_saturation
-pip install numpy torch matplotlib
-python ftn_with_pa_saturation.py
+pip install -r requirements.txt
+
+# Baseline (no impairments)
+python ftn_sim_configurable.py
+
+# PA saturation only
+python ftn_sim_configurable.py --pa
+
+# All impairments
+python ftn_sim_configurable.py --all
+```
+
+---
+
+## Usage Examples (Side-by-Side)
+
+| Task | MATLAB | Python |
+|------|--------|--------|
+| **Launch GUI** | `ftn_sim_gui` | Use CLI arguments |
+| **PA Only** | GUI: Check "PA Saturation" | `python ftn_sim_configurable.py --pa` |
+| **PA + IQ** | GUI: Check both boxes | `python ftn_sim_configurable.py --pa --iq-tx` |
+| **All Impairments** | GUI: Preset "All ON" | `python ftn_sim_configurable.py --all` |
+| **Custom IBO** | GUI: Edit IBO textbox | `python ftn_sim_configurable.py --pa --pa-ibo 5` |
+| **Save Config** | Use struct + save() | `--save-config my.json` |
+| **Load Config** | load('my.mat') | `--load my.json` |
+
+---
+
+## Detailed Usage
+
+### Python Examples
+
+```bash
+# 1. No impairments (baseline)
+python ftn_sim_configurable.py
+
+# 2. PA saturation only (moderate)
+python ftn_sim_configurable.py --pa --pa-ibo 3
+
+# 3. PA with strong saturation
+python ftn_sim_configurable.py --pa --pa-ibo 1
+
+# 4. PA + TX IQ imbalance
+python ftn_sim_configurable.py --pa --iq-tx --iq-tx-amp 1.0 --iq-tx-phase 10
+
+# 5. PA + Phase noise
+python ftn_sim_configurable.py --pa --pn --pn-psd -70
+
+# 6. PA + Quantization
+python ftn_sim_configurable.py --pa --dac --dac-bits 6 --adc --adc-bits 6
+
+# 7. All impairments
+python ftn_sim_configurable.py --all
+
+# 8. Custom FTN parameters
+python ftn_sim_configurable.py --pa --tau 0.8 --l-frac 4
+
+# 9. Save configuration
+python ftn_sim_configurable.py --pa --iq-tx --save-config experiment1.json
+
+# 10. Load and run
+python ftn_sim_configurable.py --load experiment1.json
+```
+
+### MATLAB Examples
+
+```matlab
+% 1. Launch GUI (easiest!)
+ftn_sim_gui
+
+% 2. Command-line with configuration
+config.pa_saturation.enabled = true;
+config.pa_saturation.model = 'rapp';
+config.pa_saturation.IBO_dB = 3;
+config.pa_saturation.G = 1;
+config.pa_saturation.Asat = sqrt(10^(3/10));
+config.pa_saturation.p = 2;
+
+config.iq_imbalance_tx.enabled = true;
+config.iq_imbalance_tx.amp_dB = 0.5;
+config.iq_imbalance_tx.phase_deg = 5;
+
+% Apply to signal
+signal = randn(1000,1) + 1j*randn(1000,1);
+tx_sig = impairments(signal, config, 'tx');
+
+% 3. Test PA models
+r = linspace(0, 2, 100);
+y = pa_models(r, 'rapp', config.pa_saturation);
+plot(r, abs(y)); grid on;
 ```
 
 ## Future Extensions

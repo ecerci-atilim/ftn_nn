@@ -15,13 +15,26 @@ from .pa_models import (
     get_pa_params_from_ibo
 )
 
+from .impairments import (
+    ImpairmentChain,
+    apply_iq_imbalance,
+    apply_phase_noise,
+    apply_quantization,
+    apply_cfo
+)
+
 __all__ = [
     'rapp_model',
     'saleh_model',
     'soft_limiter',
     'apply_pa_model',
-    'get_pa_params_from_ibo'
+    'get_pa_params_from_ibo',
+    'ImpairmentChain',
+    'apply_iq_imbalance',
+    'apply_phase_noise',
+    'apply_quantization',
+    'apply_cfo'
 ]
 
-__version__ = '1.0.0'
+__version__ = '2.0.0'
 __author__ = 'Emre Cerci'

@@ -78,25 +78,32 @@ def saleh_model(x_in, alpha_a=2.0, beta_a=1.0, alpha_p=np.pi/3, beta_p=1.0):
 
 def soft_limiter(x_in, A_lin=0.7, A_sat=1.0, compress=0.1):
     """
-    Soft Limiter (Simple Clipping)
+    Soft Limiter (Simple Clipping with Continuous Transition)
 
     y(r) = r                                        if r <= A_lin
          = A_lin + (r - A_lin) * compress           if A_lin < r < A_sat
-         = A_sat                                    if r >= A_sat
+         = A_lin + (A_sat - A_lin) * compress       if r >= A_sat  (continuous saturation)
 
     Parameters:
         x_in     : Input signal (complex baseband)
         A_lin    : Linear region threshold (default: 0.7)
-        A_sat    : Saturation level (default: 1.0)
+        A_sat    : Saturation level / input threshold for hard saturation (default: 1.0)
         compress : Compression factor in transition (default: 0.1)
 
     Returns:
         y_out : Output signal after PA nonlinearity
+
+    Note:
+        The saturation output level is computed to ensure continuity at r = A_sat:
+        A_out_max = A_lin + (A_sat - A_lin) * compress
     """
     r = np.abs(x_in)
     phi = np.angle(x_in)
 
     r_out = np.zeros_like(r)
+
+    # Compute the continuous saturation level (ensures no discontinuity)
+    A_out_sat = A_lin + (A_sat - A_lin) * compress
 
     # Linear region
     linear_idx = r <= A_lin
@@ -106,9 +113,9 @@ def soft_limiter(x_in, A_lin=0.7, A_sat=1.0, compress=0.1):
     transition_idx = (r > A_lin) & (r < A_sat)
     r_out[transition_idx] = A_lin + (r[transition_idx] - A_lin) * compress
 
-    # Saturation region
+    # Saturation region (continuous with transition region)
     sat_idx = r >= A_sat
-    r_out[sat_idx] = A_sat
+    r_out[sat_idx] = A_out_sat
 
     y_out = r_out * np.exp(1j * phi)
 
