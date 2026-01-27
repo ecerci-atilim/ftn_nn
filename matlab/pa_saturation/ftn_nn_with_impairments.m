@@ -269,12 +269,12 @@ ylim([1e-4 1]);
 
 % Subplot 4: Training Data Constellation
 subplot(2,3,4);
-[tx_demo, ~, ~, ~] = generate_ftn_rx_with_impairments(...
+[rx_demo, ~] = generate_ftn_rx_with_impairments(...
     randi([0 1], 1, 1000), tau, sps, h, delay, 10, config);
-plot(real(tx_demo), imag(tx_demo), 'b.', 'MarkerSize', 3);
+plot(real(rx_demo), imag(rx_demo), 'b.', 'MarkerSize', 3);
 grid on; axis equal;
 xlabel('In-Phase'); ylabel('Quadrature');
-title('Signal Constellation (After Impairments)');
+title('Received Signal Constellation (After Impairments)');
 
 % Subplot 5: Performance Summary Table
 subplot(2,3,5);
