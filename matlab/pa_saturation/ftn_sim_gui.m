@@ -554,9 +554,11 @@ function ftn_sim_gui()
             tx_impaired = pa_models(tx_impaired, config.pa_saturation.model, config.pa_saturation);
         end
 
-        % AWGN channel
+        % AWGN channel with corrected SNR (account for actual signal power)
+        tx_impaired = real(tx_impaired);  % Force real for BPSK
+        signal_power = mean(tx_impaired.^2);
         EbN0 = 10^(snr_db/10);
-        noise_power = 1 / (2 * EbN0);
+        noise_power = signal_power / (2 * EbN0);
         noise = sqrt(noise_power) * randn(size(tx_impaired));  % Real noise for BPSK
         rx_noisy = tx_impaired + noise;
 
