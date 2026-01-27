@@ -113,20 +113,25 @@ fprintf('\n');
 %% DEFINE MODEL ARCHITECTURES
 %% ========================================================================
 
-% Split data for validation
-n = size(X_fc_norm, 1);
-idx = randperm(n);
-n_val = round(0.1 * n);
+% Split FC data for validation (FC, CNN1D, LSTM use same data)
+n_fc = size(X_fc_norm, 1);
+idx_fc = randperm(n_fc);
+n_val_fc = round(0.1 * n_fc);
 
-X_fc_val = X_fc_norm(idx(1:n_val), :);
-y_fc_val = categorical(y_fc(idx(1:n_val)));
-X_fc_tr = X_fc_norm(idx(n_val+1:end), :);
-y_fc_tr = categorical(y_fc(idx(n_val+1:end)));
+X_fc_val = X_fc_norm(idx_fc(1:n_val_fc), :);
+y_fc_val = categorical(y_fc(idx_fc(1:n_val_fc)));
+X_fc_tr = X_fc_norm(idx_fc(n_val_fc+1:end), :);
+y_fc_tr = categorical(y_fc(idx_fc(n_val_fc+1:end)));
 
-X_cnn_val = X_cnn2d(:,:,:,idx(1:n_val));
-y_cnn_val = categorical(y_cnn2d(idx(1:n_val)));
-X_cnn_tr = X_cnn2d(:,:,:,idx(n_val+1:end));
-y_cnn_tr = categorical(y_cnn2d(idx(n_val+1:end)));
+% Split CNN2D data separately (different sample count due to larger margin)
+n_cnn = size(X_cnn2d, 4);
+idx_cnn = randperm(n_cnn);
+n_val_cnn = round(0.1 * n_cnn);
+
+X_cnn_val = X_cnn2d(:,:,:,idx_cnn(1:n_val_cnn));
+y_cnn_val = categorical(y_cnn2d(idx_cnn(1:n_val_cnn)));
+X_cnn_tr = X_cnn2d(:,:,:,idx_cnn(n_val_cnn+1:end));
+y_cnn_tr = categorical(y_cnn2d(idx_cnn(n_val_cnn+1:end)));
 
 % Training options
 opts = trainingOptions('adam', ...
