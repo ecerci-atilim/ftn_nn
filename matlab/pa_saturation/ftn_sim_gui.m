@@ -548,8 +548,8 @@ function ftn_sim_gui()
         tx_up = zeros(n_symbols * step, 1);
         tx_up(1:step:end) = symbols;
 
-        % Pulse shaping
-        tx_shaped = conv(tx_up, h_srrc, 'same');
+        % Pulse shaping (use 'full' to preserve all energy)
+        tx_shaped = conv(tx_up, h_srrc, 'full');
 
         % Apply TX impairments
         tx_impaired = impairments(tx_shaped, config, 'tx');
@@ -579,7 +579,8 @@ function ftn_sim_gui()
         valid_count = 0;
 
         for k = 1:n_symbols
-            center_idx = total_delay + k * step;
+            % Symbol timing: first symbol at total_delay + 1, then spaced by step
+            center_idx = total_delay + 1 + (k-1) * step;
 
             % Extract fractional samples
             frac_samples = [];
