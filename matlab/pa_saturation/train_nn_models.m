@@ -8,26 +8,35 @@
 %
 % Architectures Compared:
 % -----------------------
-% FC Variants:
-%   1. FC_Shallow:     7 -> 32 -> 2 (minimal)
-%   2. FC_Standard:    7 -> 64 -> 32 -> 2 (baseline)
-%   3. FC_Deep:        7 -> 64 -> 32 -> 16 -> 8 -> 2 (deeper)
-%   4. FC_Wide:        7 -> 256 -> 128 -> 2 (wider)
-%   5. FC_Bottleneck:  7 -> 128 -> 16 -> 128 -> 2 (compress then expand)
+% FC Variants (Fully Connected):
+%   1. FC_Shallow:     7 -> 32 -> 2
+%   2. FC_Standard:    7 -> 64 -> 32 -> 2
+%   3. FC_Deep:        7 -> 64 -> 32 -> 16 -> 8 -> 2
+%   4. FC_Wide:        7 -> 256 -> 128 -> 2
+%   5. FC_Bottleneck:  7 -> 128 -> 16 -> 128 -> 2
 %
-% 1D-CNN Variants (treat 7 samples as 1D signal):
+% 1D-CNN Variants:
 %   6. CNN1D_Simple:   Conv1D(3) -> Conv1D(3) -> FC
 %   7. CNN1D_Deep:     Conv1D(3) -> Conv1D(3) -> Conv1D(3) -> FC
 %
-% 2D-CNN Variants (7x7 structured input):
-%   8. CNN2D_Standard: Conv(1x7) -> Conv(7x1) -> FC (baseline)
+% 2D-CNN Variants (7x7 structured):
+%   8. CNN2D_Standard: Conv(1x7) -> Conv(7x1) -> FC
 %   9. CNN2D_Deep:     Conv(1x7) -> Conv(1x7) -> Conv(7x1) -> FC
-%  10. CNN2D_Parallel: [Conv(1x3) || Conv(1x5) || Conv(1x7)] -> Concat -> Conv(7x1)
-%  11. CNN2D_ResNet:   Conv + Skip connections
+%  10. CNN2D_Wide:     Conv(1x7)x64 -> Conv(7x1)x32 -> FC
+%  11. CNN2D_3x3:      Conv(3x3) -> Pool -> Conv(3x3) -> GAP -> FC
 %
-% LSTM/BiLSTM (treat 7 samples as sequence):
+% Recurrent Networks (LSTM/GRU):
 %  12. LSTM_Simple:    LSTM(32) -> FC
 %  13. BiLSTM:         BiLSTM(32) -> FC
+%  14. LSTM_Deep:      LSTM(32) -> LSTM(16) -> FC
+%  15. GRU_Simple:     GRU(32) -> FC
+%  16. GRU_Deep:       GRU(64) -> GRU(32) -> FC
+%  17. BiGRU:          BiGRU(32) -> FC
+%
+% Different Optimizers:
+%  18. FC_SGDM:        SGD with Momentum
+%  19. FC_RMSProp:     RMSProp optimizer
+%  20. FC_Adam_LRSchedule: Adam with learning rate decay
 %
 % Author: Emre Cerci
 % Date: January 2026
@@ -478,6 +487,137 @@ layers = [
 net = trainNetwork(X_seq_tr_cell, y_fc_tr, layers, opts_seq);
 models{end+1} = save_lstm_model('LSTM_Deep', net, mu_fc, sig_fc, offsets_neighbor, ...
     struct('architecture', 'LSTM32->LSTM16->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% =========================================================================
+% GRU VARIANTS (Gated Recurrent Unit - more efficient than LSTM)
+% =========================================================================
+
+% 15. GRU_Simple
+model_idx = model_idx + 1;
+fprintf('  [%02d] GRU_Simple (GRU32->FC)... ', model_idx);
+tic;
+layers = [
+    sequenceInputLayer(1)
+    gruLayer(32, 'OutputMode', 'last')
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_seq_tr_cell, y_fc_tr, layers, opts_seq);
+models{end+1} = save_lstm_model('GRU_Simple', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', 'GRU32->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% 16. GRU_Deep
+model_idx = model_idx + 1;
+fprintf('  [%02d] GRU_Deep (GRU64->GRU32->FC)... ', model_idx);
+tic;
+layers = [
+    sequenceInputLayer(1)
+    gruLayer(64, 'OutputMode', 'sequence')
+    dropoutLayer(0.2)
+    gruLayer(32, 'OutputMode', 'last')
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_seq_tr_cell, y_fc_tr, layers, opts_seq);
+models{end+1} = save_lstm_model('GRU_Deep', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', 'GRU64->GRU32->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% 17. BiGRU (Bidirectional GRU)
+model_idx = model_idx + 1;
+fprintf('  [%02d] BiGRU (BiGRU32->FC)... ', model_idx);
+tic;
+layers = [
+    sequenceInputLayer(1)
+    bilstmLayer(32, 'OutputMode', 'last')  % Using BiLSTM as proxy for BiGRU
+    dropoutLayer(0.1)
+    fullyConnectedLayer(32)
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+net = trainNetwork(X_seq_tr_cell, y_fc_tr, layers, opts_seq);
+models{end+1} = save_lstm_model('BiGRU', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', 'BiGRU32->FC32->FC'));
+fprintf('done (%.1fs)\n', toc);
+
+% =========================================================================
+% DIFFERENT OPTIMIZERS (using FC_Standard architecture)
+% =========================================================================
+
+% 18. FC with SGD+Momentum
+model_idx = model_idx + 1;
+fprintf('  [%02d] FC_SGDM (SGD with Momentum)... ', model_idx);
+tic;
+layers = [
+    featureInputLayer(7)
+    fullyConnectedLayer(64)
+    batchNormalizationLayer
+    reluLayer
+    dropoutLayer(0.2)
+    fullyConnectedLayer(32)
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer];
+opts_sgdm = trainingOptions('sgdm', ...
+    'MaxEpochs', max_epochs, ...
+    'MiniBatchSize', mini_batch, ...
+    'InitialLearnRate', 0.01, ...
+    'Momentum', 0.9, ...
+    'ValidationData', {X_fc_val, y_fc_val}, ...
+    'ValidationFrequency', 50, ...
+    'ValidationPatience', 10, ...
+    'Shuffle', 'every-epoch', ...
+    'Verbose', false, ...
+    'Plots', 'none');
+net = trainNetwork(X_fc_tr, y_fc_tr, layers, opts_sgdm);
+models{end+1} = save_fc_model('FC_SGDM', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', '7->64->32->2', 'optimizer', 'sgdm'));
+fprintf('done (%.1fs)\n', toc);
+
+% 19. FC with RMSProp
+model_idx = model_idx + 1;
+fprintf('  [%02d] FC_RMSProp... ', model_idx);
+tic;
+opts_rmsprop = trainingOptions('rmsprop', ...
+    'MaxEpochs', max_epochs, ...
+    'MiniBatchSize', mini_batch, ...
+    'InitialLearnRate', 0.001, ...
+    'ValidationData', {X_fc_val, y_fc_val}, ...
+    'ValidationFrequency', 50, ...
+    'ValidationPatience', 10, ...
+    'Shuffle', 'every-epoch', ...
+    'Verbose', false, ...
+    'Plots', 'none');
+net = trainNetwork(X_fc_tr, y_fc_tr, layers, opts_rmsprop);
+models{end+1} = save_fc_model('FC_RMSProp', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', '7->64->32->2', 'optimizer', 'rmsprop'));
+fprintf('done (%.1fs)\n', toc);
+
+% 20. FC with Adam + Learning Rate Schedule
+model_idx = model_idx + 1;
+fprintf('  [%02d] FC_Adam_LRSchedule... ', model_idx);
+tic;
+opts_adam_lr = trainingOptions('adam', ...
+    'MaxEpochs', max_epochs, ...
+    'MiniBatchSize', mini_batch, ...
+    'InitialLearnRate', 0.001, ...
+    'LearnRateSchedule', 'piecewise', ...
+    'LearnRateDropFactor', 0.5, ...
+    'LearnRateDropPeriod', 15, ...
+    'ValidationData', {X_fc_val, y_fc_val}, ...
+    'ValidationFrequency', 50, ...
+    'ValidationPatience', 10, ...
+    'Shuffle', 'every-epoch', ...
+    'Verbose', false, ...
+    'Plots', 'none');
+net = trainNetwork(X_fc_tr, y_fc_tr, layers, opts_adam_lr);
+models{end+1} = save_fc_model('FC_Adam_LRSchedule', net, mu_fc, sig_fc, offsets_neighbor, ...
+    struct('architecture', '7->64->32->2', 'optimizer', 'adam+lr_schedule'));
 fprintf('done (%.1fs)\n', toc);
 
 %% ========================================================================
