@@ -84,16 +84,16 @@ fprintf('Generated SRRC pulse: span=%d symbols, delay=%d samples, step=%d sample
 % Sample at 7 neighboring symbol instants: -3T, -2T, -1T, 0, +T, +2T, +3T
 offsets.neighbor = (-3:3) * step;
 
-% Approach 2: Fractional (inter-symbol samples only)
-% Sample between symbols, avoiding exact symbol instants
-offsets.fractional = round((-3:3) * (step-1) / 3);
-offsets.fractional(4) = 0;  % Center is always 0
+% Approach 2: Fractional (T/2-spaced equalizer)
+% Classical fractional spacing: samples at half-symbol intervals
+% -3T/2, -2T/2, -T/2, 0, T/2, 2T/2, 3T/2
+frac_step = round(step / 2);  % T/2 spacing
+offsets.fractional = (-3:3) * frac_step;
 
-% Approach 3: Hybrid (neighbor + inter-symbol)
-% Combines symbol instants with fractional samples
-t1 = round(step / 3);
-t2 = round(2 * step / 3);
-offsets.hybrid = [-step, -t2, -t1, 0, t1, t2, step];
+% Approach 3: Hybrid (T/3-spaced for denser sampling)
+% Samples at T/3 intervals for even finer resolution
+hybrid_step = round(step / 3);
+offsets.hybrid = (-3:3) * hybrid_step;
 
 fprintf('Sample offsets computed:\n');
 fprintf('  Neighbor:    [%s]\n', sprintf('%d ', offsets.neighbor));
