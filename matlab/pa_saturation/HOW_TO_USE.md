@@ -1,608 +1,485 @@
-# 🚀 HOW TO USE - MATLAB FTN Simulation
+# FTN Neural Network Detection with Hardware Impairments - User Guide
 
-## Quick Start (2 Steps)
+## Overview
 
-```matlab
-% 1. Open MATLAB and navigate to folder
-cd matlab/pa_saturation
+This package provides MATLAB implementations for **Faster-than-Nyquist (FTN) signaling** with **neural network-based detection** in the presence of **hardware impairments** (primarily Power Amplifier saturation).
 
-% 2. Run GUI
-ftn_sim_gui
-```
+### Key Features
 
-Or run directly from command line:
-```matlab
-% Run simulation with PA saturation only
-ftn_with_pa_saturation
-```
+1. **Hardware Impairments**:
+   - Power Amplifier (PA) saturation (3 models: Rapp, Saleh, Soft Limiter)
+   - IQ imbalance (TX/RX)
+   - Phase noise
+   - Carrier frequency offset (CFO)
 
----
+2. **Advanced Detection Methods**:
+   - **Neighbor**: Symbol-rate sampling (7 neighboring symbol instants)
+   - **Fractional**: Inter-symbol fractional sampling
+   - **Hybrid**: Combination of symbol + fractional samples
+   - **Structured CNN**: 7×7 matrix structure for spatial ISI processing
 
-## 📦 Installation
-
-### Requirements
-- **MATLAB R2018b or later** (recommended)
-- **No additional toolboxes required** (uses base MATLAB only)
-
-### Verify Installation
-```matlab
-% Check MATLAB version
-version
-
-% Test that files are accessible
-which pa_models
-which impairments
-which ftn_sim_gui
-```
+3. **Neural Network-Based Equalization**:
+   - Fully connected networks for Neighbor/Fractional/Hybrid
+   - Convolutional neural network (CNN) for Structured approach
+   - Trained to handle nonlinear distortion from PA saturation
 
 ---
 
-## 🎮 Usage Methods
-
-### Method 1: Interactive GUI ⭐ (Recommended for Beginners)
-
-```matlab
-ftn_sim_gui
-```
-
-**Features:**
-- Point-and-click interface
-- Toggle impairments on/off with checkboxes
-- Adjust parameters with text boxes
-- Quick presets (All OFF, PA Only, All ON)
-- Real-time status updates
-
-**How to Use:**
-1. Launch GUI: `ftn_sim_gui`
-2. Set FTN parameters (tau, L_frac, N_train)
-3. Check/uncheck impairments you want
-4. Click **RUN SIMULATION**
-5. View results in new figure window
-
----
-
-### Method 2: Command-Line Scripts
-
-#### Example 1: Baseline (No Impairments)
-```matlab
-% Run original simulation
-ftn_with_pa_saturation
-```
-
-#### Example 2: Test Individual Impairments
-
-**PA Saturation Only:**
-```matlab
-% Create configuration
-config = struct();
-config.pa_saturation.enabled = true;
-config.pa_saturation.model = 'rapp';
-config.pa_saturation.IBO_dB = 3;
-
-% Other impairments OFF
-config.iq_imbalance_tx.enabled = false;
-config.dac_quantization.enabled = false;
-% ... (set others to false)
-
-% Run simulation
-run_ftn_with_config(config);
-```
-
-**PA + IQ Imbalance:**
-```matlab
-config = struct();
-
-% Enable PA
-config.pa_saturation.enabled = true;
-config.pa_saturation.model = 'rapp';
-config.pa_saturation.IBO_dB = 3;
-config.pa_saturation.G = 1;
-config.pa_saturation.Asat = sqrt(10^(3/10));
-config.pa_saturation.p = 2;
-
-% Enable TX IQ imbalance
-config.iq_imbalance_tx.enabled = true;
-config.iq_imbalance_tx.amp_dB = 0.5;
-config.iq_imbalance_tx.phase_deg = 5;
-
-% Disable others
-config.dac_quantization.enabled = false;
-config.cfo.enabled = false;
-config.phase_noise.enabled = false;
-config.iq_imbalance_rx.enabled = false;
-config.adc_quantization.enabled = false;
-
-% Test signal
-signal = randn(1000,1) + 1j*randn(1000,1);
-tx_impaired = impairments(signal, config, 'tx');
-
-% Plot
-figure;
-plot(real(signal), imag(signal), 'b.', 'MarkerSize', 4);
-hold on;
-plot(real(tx_impaired), imag(tx_impaired), 'r.', 'MarkerSize', 4);
-legend('Original', 'With Impairments');
-grid on;
-axis equal;
-title('Signal Constellation');
-```
-
----
-
-### Method 3: Using Impairments Function Directly
-
-```matlab
-% Create test signal
-N = 1000;
-signal = exp(1j*2*pi*0.1*(1:N)');
-
-% Configure impairments
-config.pa_saturation.enabled = true;
-config.pa_saturation.model = 'rapp';
-config.pa_saturation.IBO_dB = 3;
-config.pa_saturation.G = 1;
-config.pa_saturation.Asat = sqrt(10^(3/10));
-config.pa_saturation.p = 2;
-config.pa_saturation.memory_effects = false;
-
-config.iq_imbalance_tx.enabled = true;
-config.iq_imbalance_tx.amp_dB = 0.5;
-config.iq_imbalance_tx.phase_deg = 5;
-
-config.dac_quantization.enabled = true;
-config.dac_quantization.n_bits = 6;
-config.dac_quantization.full_scale = 1.0;
-
-% Apply TX impairments
-tx_signal = impairments(signal, config, 'tx');
-
-% Configure RX impairments
-config.cfo.enabled = true;
-config.cfo.cfo_hz = 100;
-config.cfo.fs = 1e6;
-
-config.phase_noise.enabled = true;
-config.phase_noise.psd_dBc_Hz = -80;
-config.phase_noise.fs = 1e6;
-
-config.iq_imbalance_rx.enabled = true;
-config.iq_imbalance_rx.amp_dB = 0.3;
-config.iq_imbalance_rx.phase_deg = 3;
-
-config.adc_quantization.enabled = true;
-config.adc_quantization.n_bits = 6;
-config.adc_quantization.full_scale = 1.0;
-
-% Apply RX impairments
-rx_signal = impairments(tx_signal, config, 'rx');
-
-% Plot comparison
-figure;
-subplot(1,3,1);
-plot(real(signal), imag(signal), 'b.');
-title('Original'); grid on; axis equal;
-
-subplot(1,3,2);
-plot(real(tx_signal), imag(tx_signal), 'r.');
-title('After TX Impairments'); grid on; axis equal;
-
-subplot(1,3,3);
-plot(real(rx_signal), imag(rx_signal), 'g.');
-title('After RX Impairments'); grid on; axis equal;
-```
-
----
-
-## 🎛️ Configuration Parameters
-
-### PA Saturation
-
-```matlab
-config.pa_saturation.enabled = true;          % ON/OFF
-config.pa_saturation.model = 'rapp';          % 'rapp', 'saleh', 'soft_limiter'
-config.pa_saturation.IBO_dB = 3;              % Input Back-Off (dB)
-config.pa_saturation.memory_effects = false;  % Enable memory effects
-config.pa_saturation.memory_depth = 3;        % Memory depth (if enabled)
-
-% Model-specific parameters (auto-calculated from IBO)
-IBO_lin = 10^(IBO_dB/10);
-config.pa_saturation.G = 1;                   % Small signal gain
-config.pa_saturation.Asat = sqrt(IBO_lin);    % Saturation amplitude
-config.pa_saturation.p = 2;                   % Smoothness factor (Rapp)
-```
-
-**Typical Values:**
-- `IBO_dB = 6`: Light saturation (mild nonlinearity)
-- `IBO_dB = 3`: Moderate saturation (typical)
-- `IBO_dB = 1`: Heavy saturation (strong nonlinearity)
-
-### IQ Imbalance (TX/RX)
-
-```matlab
-config.iq_imbalance_tx.enabled = true;
-config.iq_imbalance_tx.amp_dB = 0.5;         % Amplitude imbalance (dB)
-config.iq_imbalance_tx.phase_deg = 5;        % Phase imbalance (degrees)
-
-config.iq_imbalance_rx.enabled = true;
-config.iq_imbalance_rx.amp_dB = 0.3;
-config.iq_imbalance_rx.phase_deg = 3;
-```
-
-**Typical Values:**
-- Good hardware: amp = 0.1-0.3 dB, phase = 1-3°
-- Moderate hardware: amp = 0.3-1.0 dB, phase = 3-10°
-- Poor hardware: amp = 1.0-2.0 dB, phase = 10-15°
-
-### Quantization (DAC/ADC)
-
-```matlab
-config.dac_quantization.enabled = true;
-config.dac_quantization.n_bits = 8;          % Resolution (bits)
-config.dac_quantization.full_scale = 1.0;    % Full-scale value
-
-config.adc_quantization.enabled = true;
-config.adc_quantization.n_bits = 8;
-config.adc_quantization.full_scale = 1.0;
-```
-
-**Typical Values:**
-- High quality: 10-12 bits
-- Medium quality: 8-10 bits
-- Low quality: 4-8 bits
-
-### Phase Noise
-
-```matlab
-config.phase_noise.enabled = true;
-config.phase_noise.psd_dBc_Hz = -80;         % PSD in dBc/Hz
-config.phase_noise.fs = 1e6;                 % Sampling frequency
-```
-
-**Typical Values:**
-- Excellent oscillator: -100 to -90 dBc/Hz
-- Good oscillator: -90 to -80 dBc/Hz
-- Moderate oscillator: -80 to -70 dBc/Hz
-- Poor oscillator: -70 to -60 dBc/Hz
-
-### Carrier Frequency Offset
-
-```matlab
-config.cfo.enabled = true;
-config.cfo.cfo_hz = 100;                     % CFO in Hz
-config.cfo.fs = 1e6;                         % Sampling frequency
-```
-
-**Typical Values:**
-- Depends on carrier frequency and oscillator accuracy
-- For fc = 1 GHz, 10 ppm accuracy → CFO = 10 kHz
-
----
-
-## 📚 Example Use Cases
-
-### Use Case 1: Study PA Saturation Impact
-
-```matlab
-% Create array of IBO values
-IBO_values = [1, 2, 3, 4, 5, 6];
-
-figure;
-hold on;
-
-for IBO = IBO_values
-    % Configure PA
-    config.pa_saturation.enabled = true;
-    config.pa_saturation.model = 'rapp';
-    config.pa_saturation.IBO_dB = IBO;
-    IBO_lin = 10^(IBO/10);
-    config.pa_saturation.G = 1;
-    config.pa_saturation.Asat = sqrt(IBO_lin);
-    config.pa_saturation.p = 2;
-
-    % Disable other impairments
-    config.iq_imbalance_tx.enabled = false;
-    config.dac_quantization.enabled = false;
-
-    % Test signal
-    r_in = linspace(0, 2, 1000);
-    x_test = r_in;
-
-    y_out = pa_models(x_test, 'rapp', config.pa_saturation);
-
-    plot(r_in, abs(y_out), 'LineWidth', 2, 'DisplayName', sprintf('IBO=%ddB', IBO));
-end
-
-plot(r_in, r_in, 'k--', 'LineWidth', 1.5, 'DisplayName', 'Linear');
-xlabel('Input Amplitude');
-ylabel('Output Amplitude');
-title('PA AM/AM Characteristic vs IBO');
-legend('Location', 'best');
-grid on;
-```
-
-### Use Case 2: Compare PA Models
-
-```matlab
-models = {'rapp', 'saleh', 'soft_limiter'};
-IBO = 3;
-
-figure;
-hold on;
-
-for i = 1:length(models)
-    % Configure
-    config.pa_saturation.model = models{i};
-    config.pa_saturation.IBO_dB = IBO;
-    IBO_lin = 10^(IBO/10);
-
-    if strcmp(models{i}, 'rapp')
-        config.pa_saturation.G = 1;
-        config.pa_saturation.Asat = sqrt(IBO_lin);
-        config.pa_saturation.p = 2;
-    elseif strcmp(models{i}, 'saleh')
-        config.pa_saturation.alpha_a = 2.0;
-        config.pa_saturation.beta_a = 1.0/IBO_lin;
-        config.pa_saturation.alpha_p = pi/3;
-        config.pa_saturation.beta_p = 1.0/IBO_lin;
-    else % soft_limiter
-        config.pa_saturation.A_lin = sqrt(IBO_lin)*0.7;
-        config.pa_saturation.A_sat = sqrt(IBO_lin);
-        config.pa_saturation.compress = 0.1;
-    end
-
-    % Test
-    r_in = linspace(0, 2, 1000);
-    y_out = pa_models(r_in, models{i}, config.pa_saturation);
-
-    plot(r_in, abs(y_out), 'LineWidth', 2, 'DisplayName', upper(models{i}));
-end
-
-plot(r_in, r_in, 'k--', 'LineWidth', 1.5, 'DisplayName', 'Linear');
-xlabel('Input Amplitude');
-ylabel('Output Amplitude');
-title(sprintf('PA Model Comparison (IBO=%ddB)', IBO));
-legend('Location', 'best');
-grid on;
-```
-
-### Use Case 3: Test All Impairments
-
-```matlab
-% Generate test signal
-N = 1000;
-signal = exp(1j*2*pi*0.05*(1:N)') + 0.1*(randn(N,1) + 1j*randn(N,1));
-
-% Enable all impairments
-config.pa_saturation.enabled = true;
-config.pa_saturation.model = 'rapp';
-config.pa_saturation.IBO_dB = 3;
-config.pa_saturation.G = 1;
-config.pa_saturation.Asat = sqrt(10^(3/10));
-config.pa_saturation.p = 2;
-config.pa_saturation.memory_effects = false;
-
-config.iq_imbalance_tx.enabled = true;
-config.iq_imbalance_tx.amp_dB = 0.5;
-config.iq_imbalance_tx.phase_deg = 5;
-
-config.dac_quantization.enabled = true;
-config.dac_quantization.n_bits = 6;
-config.dac_quantization.full_scale = 1.0;
-
-config.cfo.enabled = true;
-config.cfo.cfo_hz = 100;
-config.cfo.fs = 100e3;
-
-config.phase_noise.enabled = true;
-config.phase_noise.psd_dBc_Hz = -70;
-config.phase_noise.fs = 100e3;
-
-config.iq_imbalance_rx.enabled = true;
-config.iq_imbalance_rx.amp_dB = 0.3;
-config.iq_imbalance_rx.phase_deg = 3;
-
-config.adc_quantization.enabled = true;
-config.adc_quantization.n_bits = 6;
-config.adc_quantization.full_scale = 1.0;
-
-% Apply impairments
-tx_sig = impairments(signal, config, 'tx');
-rx_sig = impairments(tx_sig, config, 'rx');
-
-% Visualize
-figure('Position', [100 100 1200 400]);
-
-subplot(1,3,1);
-plot(real(signal), imag(signal), 'b.', 'MarkerSize', 4);
-grid on; axis equal;
-xlabel('In-Phase'); ylabel('Quadrature');
-title('Original Signal');
-
-subplot(1,3,2);
-plot(real(tx_sig), imag(tx_sig), 'r.', 'MarkerSize', 4);
-grid on; axis equal;
-xlabel('In-Phase'); ylabel('Quadrature');
-title('After TX Impairments');
-
-subplot(1,3,3);
-plot(real(rx_sig), imag(rx_sig), 'g.', 'MarkerSize', 4);
-grid on; axis equal;
-xlabel('In-Phase'); ylabel('Quadrature');
-title('After RX Impairments');
-
-sgtitle('Signal Degradation from Impairments');
-```
-
----
-
-## 🐛 Troubleshooting
-
-### Problem: "Undefined function or variable 'pa_models'"
-**Solution:**
-```matlab
-% Make sure you're in the correct directory
-cd matlab/pa_saturation
-
-% Or add to path
-addpath('matlab/pa_saturation')
-```
-
-### Problem: GUI doesn't open
-**Solution:**
-```matlab
-% Check MATLAB version
-version  % Should be R2018b or later
-
-% Try running directly
-ftn_sim_gui
-
-% If error, check for syntax errors
-edit ftn_sim_gui
-```
-
-### Problem: Simulation runs but no plots
-**Solution:**
-```matlab
-% Check if figure windows are hidden
-shg  % Show graphics
-
-% Or manually create figure
-figure;
-% ... run plotting code ...
-```
-
-### Problem: "Out of memory"
-**Solution:**
-```matlab
-% Reduce problem size
-config.n_train = 10000;  % Instead of 100000
-config.n_test = 5000;    % Instead of 50000
-```
-
----
-
-## 💡 Tips and Tricks
-
-### Tip 1: Save and Load Configurations
-```matlab
-% Save config
-save('my_config.mat', 'config');
-
-% Load config
-load('my_config.mat');
-```
-
-### Tip 2: Batch Simulations
-```matlab
-% Run multiple configurations
-IBO_values = [2, 3, 4, 5];
-
-for IBO = IBO_values
-    config.pa_saturation.IBO_dB = IBO;
-    config.pa_saturation.Asat = sqrt(10^(IBO/10));
-
-    % Run simulation
-    % ... your simulation code ...
-
-    % Save results
-    filename = sprintf('results_IBO_%d.mat', IBO);
-    save(filename, 'results');
-end
-```
-
-### Tip 3: Quick Visualization
-```matlab
-% Test PA model quickly
-r = linspace(0, 2, 100);
-config.pa_saturation.model = 'rapp';
-config.pa_saturation.IBO_dB = 3;
-config.pa_saturation.G = 1;
-config.pa_saturation.Asat = sqrt(10^(3/10));
-config.pa_saturation.p = 2;
-
-y = pa_models(r, 'rapp', config.pa_saturation);
-plot(r, abs(y)); grid on;
-```
-
----
-
-## 📖 File Reference
+## Files in This Package
 
 | File | Purpose |
 |------|---------|
+| `ftn_nn_with_impairments.m` | **Main command-line simulation** - Complete BER comparison |
+| `ftn_nn_gui.m` | **Interactive GUI** - Easy configuration and testing |
 | `pa_models.m` | PA saturation models (Rapp, Saleh, Soft Limiter) |
-| `impairments.m` | All hardware impairments (IQ, quantization, phase noise, CFO) |
-| `ftn_sim_gui.m` | Interactive GUI for easy configuration |
-| `ftn_with_pa_saturation.m` | Original simulation script |
+| `impairments.m` | Hardware impairment functions (legacy, optional) |
+| `ftn_with_pa_saturation.m` | Legacy simple detection (symbol-rate vs fractional) |
+| `ftn_sim_gui.m` | Legacy GUI for simple detection |
 | `HOW_TO_USE.md` | This guide |
-| `README.md` | Project overview and theory |
 
 ---
 
-## 🎓 For Research
+## Quick Start
 
-### Systematic Parameter Sweep
+### Option 1: Interactive GUI (Recommended)
+
 ```matlab
-% Example: Study PA saturation vs IQ imbalance interaction
+% Launch the GUI
+ftn_nn_gui()
+```
 
-IBO_range = [2, 3, 4, 5];
-IQ_amp_range = [0, 0.5, 1.0, 1.5];
+**Steps**:
+1. Configure FTN parameters (tau, beta, sps, span) in the **Configuration** tab
+2. Enable/disable hardware impairments and set their parameters
+3. Select detection approaches to compare (check/uncheck boxes)
+4. Switch to **Training & Testing** tab
+5. Click "**Start Simulation**" button
+6. Monitor progress in real-time
+7. View results in the **Results** tab
+8. Click "**Save Results**" to export data
 
-results = zeros(length(IBO_range), length(IQ_amp_range));
+### Option 2: Command-Line Simulation
 
-for i = 1:length(IBO_range)
-    for j = 1:length(IQ_amp_range)
-        % Configure
-        config.pa_saturation.enabled = true;
-        config.pa_saturation.IBO_dB = IBO_range(i);
-        config.iq_imbalance_tx.enabled = (IQ_amp_range(j) > 0);
-        config.iq_imbalance_tx.amp_dB = IQ_amp_range(j);
+```matlab
+% Run the main simulation script
+ftn_nn_with_impairments
+```
 
-        % Run simulation (simplified)
-        % results(i,j) = run_and_get_ber(config);
+This will:
+- Generate training data with PA saturation
+- Train 4 neural network detectors
+- Test over SNR range 0-14 dB (step 2 dB)
+- Display BER curves and save results
 
-        fprintf('IBO=%d, IQ=%.1f\n', IBO_range(i), IQ_amp_range(j));
-    end
+---
+
+## Configuration Guide
+
+### FTN Parameters
+
+| Parameter | Symbol | Description | Typical Values |
+|-----------|--------|-------------|----------------|
+| **Tau** | τ | FTN compression factor | 0.7 (30% faster than Nyquist) |
+| **Beta** | β | SRRC roll-off factor | 0.3 |
+| **SPS** | - | Samples per symbol | 10 |
+| **Span** | - | Pulse span (symbols) | 6 |
+
+### PA Saturation Models
+
+#### 1. Rapp Model (SSPA)
+```matlab
+config.pa_model = 'rapp';
+config.pa_ibo_db = 3;  % Input Back-Off (dB)
+```
+- **Best for**: Solid-state power amplifiers
+- **IBO**: Controls saturation level (higher = less saturation)
+- **Typical range**: 2-6 dB
+
+#### 2. Saleh Model (TWTA)
+```matlab
+config.pa_model = 'saleh';
+config.pa_ibo_db = 3;
+```
+- **Best for**: Traveling-wave tube amplifiers
+- **Features**: Both AM/AM and AM/PM distortion
+- **Typical range**: 2-5 dB
+
+#### 3. Soft Limiter
+```matlab
+config.pa_model = 'soft_limiter';
+config.pa_ibo_db = 3;
+```
+- **Best for**: Simple clipping model
+- **Features**: Piecewise linear saturation
+- **Typical range**: 1-4 dB
+
+### Other Hardware Impairments
+
+#### TX IQ Imbalance
+```matlab
+config.iq_tx_enabled = true;
+config.iq_tx_amp = 0.1;      % Amplitude imbalance (0-0.5)
+config.iq_tx_phase = 5;      % Phase imbalance (degrees, 0-30)
+```
+
+#### Phase Noise
+```matlab
+config.phase_noise_enabled = true;
+config.pn_variance = 0.01;   % Variance (0.001-0.1)
+```
+
+#### Carrier Frequency Offset (CFO)
+```matlab
+config.cfo_enabled = true;
+config.cfo_hz = 100;         % Offset in Hz
+```
+
+---
+
+## Detection Approaches Explained
+
+### 1. Neighbor (Symbol-Rate Sampling)
+
+**Concept**: Sample matched filter output at 7 neighboring symbol instants.
+
+**Offsets**: `[-3T, -2T, -T, 0, T, 2T, 3T]` where T = τ × sps
+
+**Advantages**:
+- Classical approach
+- Baseline for comparison
+
+**Disadvantages**:
+- Loses information about nonlinear distortion between symbols
+- Suboptimal for PA saturation
+
+### 2. Fractional (Inter-Symbol Sampling)
+
+**Concept**: Sample between symbol instants, avoiding exact symbol times.
+
+**Offsets**: Evenly spaced within inter-symbol intervals
+
+**Advantages**:
+- Captures nonlinear distortion better
+- More robust to PA saturation
+
+**Disadvantages**:
+- Loses direct symbol information
+
+### 3. Hybrid
+
+**Concept**: Combines symbol instants with fractional samples.
+
+**Offsets**: `[-T, -2T/3, -T/3, 0, T/3, 2T/3, T]`
+
+**Advantages**:
+- Best of both worlds
+- Balances symbol + distortion information
+
+**Disadvantages**:
+- Slightly more complex
+
+### 4. Structured CNN
+
+**Concept**: Extracts 7×7 matrix (7 neighbor symbols × 7 samples around each), processes with CNN.
+
+**Matrix Structure**:
+```
+Row 1: [samples around symbol k-3]
+Row 2: [samples around symbol k-2]
+Row 3: [samples around symbol k-1]
+Row 4: [samples around symbol k  ] ← Current symbol
+Row 5: [samples around symbol k+1]
+Row 6: [samples around symbol k+2]
+Row 7: [samples around symbol k+3]
+```
+
+**Advantages**:
+- Spatial processing of ISI structure
+- CNN learns 2D patterns in ISI
+- **Best performance** with nonlinearities
+
+**Disadvantages**:
+- Higher computational cost
+- Requires more training data
+
+---
+
+## Usage Examples
+
+### Example 1: Compare All Detectors with PA Saturation
+
+```matlab
+% Edit ftn_nn_with_impairments.m configuration section:
+tau = 0.7;
+config.pa_enabled = true;
+config.pa_model = 'rapp';
+config.pa_ibo_db = 3;
+
+% Run
+ftn_nn_with_impairments
+```
+
+**Expected output**: Structured CNN performs best, followed by Hybrid, then Fractional, then Neighbor.
+
+### Example 2: Test Without Impairments (Baseline)
+
+```matlab
+% Edit configuration:
+config.pa_enabled = false;
+config.iq_tx_enabled = false;
+config.phase_noise_enabled = false;
+config.cfo_enabled = false;
+
+% Run
+ftn_nn_with_impairments
+```
+
+**Expected output**: All approaches perform similarly (linear channel).
+
+### Example 3: Severe PA Saturation
+
+```matlab
+% Edit configuration:
+config.pa_enabled = true;
+config.pa_model = 'rapp';
+config.pa_ibo_db = 1;  % Very low IBO = severe saturation
+
+% Run
+ftn_nn_with_impairments
+```
+
+**Expected output**: Large performance gap between Structured CNN and Neighbor.
+
+### Example 4: Multiple Impairments
+
+```matlab
+% Edit configuration:
+config.pa_enabled = true;
+config.pa_ibo_db = 3;
+config.iq_tx_enabled = true;
+config.iq_tx_amp = 0.1;
+config.iq_tx_phase = 5;
+config.phase_noise_enabled = true;
+config.pn_variance = 0.01;
+
+% Run
+ftn_nn_with_impairments
+```
+
+**Expected output**: Tests robustness to combined impairments.
+
+### Example 5: Custom SNR Range
+
+```matlab
+% Edit configuration:
+SNR_train = 12;           % Higher training SNR
+SNR_test = 4:2:16;        % Different test range
+
+% Run
+ftn_nn_with_impairments
+```
+
+---
+
+## Understanding the Results
+
+### BER Curves
+
+The simulation generates a plot showing BER vs SNR for each detection approach.
+
+**How to interpret**:
+- **Lower curve = better performance**
+- **Structured CNN** should be lowest (best)
+- **Neighbor** should be highest (worst) with PA saturation
+- **Gap between curves** = benefit of advanced detection
+
+### Performance Metrics
+
+At high SNR (e.g., 14 dB), typical BER values:
+
+| Approach | Without PA | With PA (IBO=3dB) |
+|----------|-----------|-------------------|
+| Neighbor | ~1e-4 | ~5e-2 |
+| Fractional | ~1e-4 | ~1e-2 |
+| Hybrid | ~1e-4 | ~5e-3 |
+| Structured CNN | ~1e-4 | ~1e-3 |
+
+**Key observation**: PA saturation degrades Neighbor significantly, but Structured CNN remains robust.
+
+---
+
+## Troubleshooting
+
+### Problem: BER stuck at 0.5 (random guessing)
+
+**Causes**:
+1. Incorrect symbol timing
+2. Mismatched training/testing conditions
+3. Insufficient training data
+
+**Solutions**:
+- Check that `symbol_indices = delay + 1 + (0:N-1) * step` (note the +1)
+- Ensure `conv(., ., 'full')` is used (not 'same')
+- Increase N_train to 50,000+
+
+### Problem: "Out of memory" error
+
+**Solutions**:
+- Reduce N_train (try 30,000)
+- Reduce N_test (try 10,000)
+- Reduce max_epochs (try 20)
+- Close other MATLAB figures/variables
+
+### Problem: Training takes too long
+
+**Solutions**:
+- Reduce max_epochs (30 → 20)
+- Increase mini_batch (512 → 1024)
+- Disable some detection approaches
+- Use GPU (if available): `trainNetwork(... 'ExecutionEnvironment', 'gpu')`
+
+### Problem: Poor BER performance
+
+**Check**:
+1. PA is actually enabled: `config.pa_enabled = true`
+2. Training SNR is reasonable (8-12 dB recommended)
+3. Neural network trained successfully (no NaN losses)
+4. Sufficient training data (N_train ≥ 50,000)
+
+### Problem: GUI doesn't start
+
+**Possible causes**:
+- MATLAB version too old (requires R2020a+)
+- Missing Deep Learning Toolbox
+
+**Solutions**:
+- Update MATLAB
+- Install Deep Learning Toolbox: `matlab.addons.install('Deep Learning Toolbox')`
+- Use command-line version instead
+
+---
+
+## Advanced Customization
+
+### Modify Neural Network Architecture
+
+Edit the `train_nn()` function in `ftn_nn_with_impairments.m`:
+
+```matlab
+function net = train_nn(X, y, hidden_sizes, max_epochs, mini_batch)
+    layers = [
+        featureInputLayer(size(X,2))
+        fullyConnectedLayer(64)        % Changed from 32
+        batchNormalizationLayer
+        reluLayer
+        dropoutLayer(0.3)              % Changed from 0.2
+        fullyConnectedLayer(32)        % Changed from 16
+        batchNormalizationLayer
+        reluLayer
+        dropoutLayer(0.3)
+        fullyConnectedLayer(2)
+        softmaxLayer
+        classificationLayer
+    ];
+    % ... rest of function
 end
-
-% Visualize results
-figure;
-imagesc(IQ_amp_range, IBO_range, results);
-colorbar;
-xlabel('IQ Imbalance (dB)');
-ylabel('IBO (dB)');
-title('BER vs PA Saturation and IQ Imbalance');
 ```
 
----
+### Modify CNN Architecture
 
-## ⚡ Quick Reference Card
+Edit the `train_cnn()` function:
 
 ```matlab
-%% Most Common Commands
-
-% 1. Launch GUI
-ftn_sim_gui
-
-% 2. Run baseline simulation
-ftn_with_pa_saturation
-
-% 3. Test PA model
-r = 0:0.01:2;
-cfg.model = 'rapp'; cfg.IBO_dB = 3;
-cfg.G = 1; cfg.Asat = sqrt(10^(3/10)); cfg.p = 2;
-y = pa_models(r, 'rapp', cfg);
-plot(r, abs(y)); grid on;
-
-% 4. Test impairments on signal
-signal = randn(1000,1) + 1j*randn(1000,1);
-config.pa_saturation.enabled = true;
-% ... set other config fields ...
-tx_sig = impairments(signal, config, 'tx');
+layers = [
+    imageInputLayer([7 7 1], 'Normalization', 'none')
+    convolution2dLayer([1 7], 64, 'Padding', 'same')   % More filters
+    batchNormalizationLayer
+    reluLayer
+    convolution2dLayer([7 1], 32, 'Padding', 0)        % More filters
+    batchNormalizationLayer
+    reluLayer
+    fullyConnectedLayer(2)
+    softmaxLayer
+    classificationLayer
+];
 ```
 
 ---
 
-**Happy Simulating! 🚀**
+## Performance Tips
 
-For detailed theory and background, see README.md in this folder.
+### For Faster Simulations
+
+1. **Reduce data size**:
+   ```matlab
+   N_train = 30000;    % Instead of 50000
+   N_test = 10000;     % Instead of 20000
+   ```
+
+2. **Fewer SNR points**:
+   ```matlab
+   SNR_test = 0:4:16;  % Step 4 instead of 2
+   ```
+
+3. **Fewer epochs**:
+   ```matlab
+   max_epochs = 20;    % Instead of 30
+   ```
+
+4. **Disable approaches**:
+   - Test only Neighbor + Structured CNN
+   - Skip Fractional and Hybrid
+
+### For Better Accuracy
+
+1. **More training data**:
+   ```matlab
+   N_train = 100000;   % More data
+   ```
+
+2. **More epochs**:
+   ```matlab
+   max_epochs = 50;
+   ```
+
+3. **Better training SNR**:
+   ```matlab
+   SNR_train = 12;     % Higher SNR for cleaner training
+   ```
+
+---
+
+## Citation and References
+
+If you use this code in your research, please cite:
+
+**Professor's Research Context**:
+> "Symbol-rate sampling provides sufficient statistics for linear channels only. With nonlinearities (e.g., PA saturation), fractional sampling and window-based detection capture distortion better than symbol-rate sampling."
+>
+> — Prof. Dr. Enver Çavuş
+
+**Key Concept**: This implementation validates that neural network-based window detectors (especially Structured CNN) outperform classical symbol-rate sampling when PA saturation is present.
+
+---
+
+## Quick Reference: Parameter Ranges
+
+| Parameter | Min | Typical | Max | Notes |
+|-----------|-----|---------|-----|-------|
+| **tau** | 0.5 | 0.7 | 0.99 | Lower = more ISI |
+| **beta** | 0.1 | 0.3 | 0.9 | Roll-off factor |
+| **sps** | 4 | 10 | 20 | Higher = more accuracy |
+| **PA IBO** | 0.5 | 3 | 10 | Lower = more saturation |
+| **N_train** | 10k | 50k | 200k | More = better learning |
+| **max_epochs** | 10 | 30 | 100 | More = better training |
+
+---
+
+**Author**: Emre Cerci
+**Supervisor**: Prof. Dr. Enver Çavuş
+**Institution**: Atilim University
+**Date**: January 2026
+
+---
+
+**END OF GUIDE**
