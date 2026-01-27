@@ -488,29 +488,14 @@ function ftn_sim_gui()
     function [snr_range, ber_results] = run_ftn_simulation(config, data)
         % Run the actual FTN BER simulation
 
-        % Fixed FTN parameters
-        beta = 0.35;
+        % Fixed FTN parameters (same as reference implementation)
+        beta = 0.3;
         sps = 10;
         span = 6;
 
-        % Generate SRRC pulse
-        t_vec = -span*sps : span*sps;
-        t_norm = t_vec / sps;
-        h_srrc = zeros(size(t_norm));
-
-        for i = 1:length(t_norm)
-            t = t_norm(i);
-            if t == 0
-                h_srrc(i) = 1 - beta + 4*beta/pi;
-            elseif abs(t) == 1/(4*beta)
-                h_srrc(i) = (beta/sqrt(2)) * ((1+2/pi)*sin(pi/(4*beta)) + (1-2/pi)*cos(pi/(4*beta)));
-            else
-                num = sin(pi*t*(1-beta)) + 4*beta*t*cos(pi*t*(1+beta));
-                den = pi*t*(1 - (4*beta*t)^2);
-                h_srrc(i) = num / den;
-            end
-        end
-        h_srrc = h_srrc / sqrt(sum(h_srrc.^2));
+        % Generate SRRC pulse using rcosdesign (same as reference)
+        h_srrc = rcosdesign(beta, span, sps, 'sqrt');
+        h_srrc = h_srrc / norm(h_srrc);
         delay = span * sps;
 
         % Simulation parameters
@@ -551,21 +536,89 @@ function ftn_sim_gui()
         % Pulse shaping (use 'full' to preserve all energy)
         tx_shaped = conv(tx_up, h_srrc, 'full');
 
-        % Apply TX impairments
-        tx_impaired = impairments(tx_shaped, config, 'tx');
+        % Apply TX impairments (inline implementation)
+        tx_impaired = tx_shaped;
+        
+        % TX IQ Imbalance
+        if config.iq_imbalance_tx.enabled
+            tx_impaired = apply_iq_imbalance(tx_impaired, config.iq_imbalance_tx);
+        end
+        
+        % DAC Quantization
+        if config.dac_quantization.enabled
+            tx_impaired = apply_quantization(tx_impaired, config.dac_quantization);
+        end
+        
+        % PA Saturation
+        if config.pa_saturation.enabled
+            tx_impaired = pa_models(tx_impaired, config.pa_saturation.model, config.pa_saturation);
+        end
 
         % AWGN channel
         EbN0 = 10^(snr_db/10);
         noise_power = 1 / (2 * EbN0);
-        noise = sqrt(noise_power) * (randn(size(tx_impaired)) + 1j*randn(size(tx_impaired)));
+        noise = sqrt(noise_power) * randn(size(tx_impaired));  % Real noise for BPSK
         rx_noisy = tx_impaired + noise;
 
-        % Apply RX impairments
-        rx_impaired = impairments(rx_noisy, config, 'rx');
+        % Apply RX impairments (inline implementation)
+        rx_impaired = rx_noisy;
+        
+        % CFO
+        if config.cfo.enabled
+            n = (0:length(rx_impaired)-1)';
+            phase_shift = exp(1j * 2 * pi * config.cfo.cfo_hz * n / config.cfo.fs);
+            rx_impaired = rx_impaired .* phase_shift;
+        end
+        
+        % Phase Noise
+        if config.phase_noise.enabled
+            f_offset = 10e3;  % Reference offset frequency
+            L_linear = 10^(config.phase_noise.psd_dBc_Hz / 10);
+            linewidth_hz = pi * (f_offset^2) * L_linear;
+            sigma_phi = sqrt(2 * pi * linewidth_hz / config.phase_noise.fs);
+            phase_noise = cumsum(randn(size(rx_impaired)) * sigma_phi);
+            rx_impaired = rx_impaired .* exp(1j * phase_noise);
+        end
+        
+        % RX IQ Imbalance
+        if config.iq_imbalance_rx.enabled
+            rx_impaired = apply_iq_imbalance(rx_impaired, config.iq_imbalance_rx);
+        end
+        
+        % ADC Quantization
+        if config.adc_quantization.enabled
+            rx_impaired = apply_quantization(rx_impaired, config.adc_quantization);
+        end
 
         % Matched filter
         rx_mf = conv(rx_impaired, h_srrc, 'full');
         rx_mf = rx_mf / std(rx_mf);
+    end
+    
+    function y = apply_iq_imbalance(x, cfg)
+        % Apply IQ imbalance: y = (1+α)·I + j·(1-α)·Q·exp(jφ)
+        alpha = (10^(cfg.amp_dB/20) - 1) / 2;
+        phi = deg2rad(cfg.phase_deg);
+        I = real(x);
+        Q = imag(x);
+        I_imb = (1 + alpha) * I;
+        Q_imb = (1 - alpha) * Q;
+        y = I_imb + 1j * Q_imb * exp(1j * phi);
+    end
+    
+    function y = apply_quantization(x, cfg)
+        % Apply ADC/DAC quantization
+        n_bits = cfg.n_bits;
+        full_scale = cfg.full_scale;
+        n_levels = 2^n_bits;
+        step_size = 2 * full_scale / n_levels;
+        I = real(x);
+        Q = imag(x);
+        I_quant = round(I / step_size) * step_size;
+        Q_quant = round(Q / step_size) * step_size;
+        I_quant = max(min(I_quant, full_scale), -full_scale);
+        Q_quant = max(min(Q_quant, full_scale), -full_scale);
+        y = I_quant + 1j * Q_quant;
     end
 
     function ber = detect_fractional(rx_mf, bits, step, delay, n_window, l_frac)

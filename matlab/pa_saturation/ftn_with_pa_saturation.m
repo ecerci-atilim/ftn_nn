@@ -24,7 +24,7 @@ clear; close all; clc;
 
 % FTN Parameters
 tau = 0.7;                  % FTN compression factor
-beta = 0.35;                % SRRC roll-off
+beta = 0.3;                 % SRRC roll-off (same as reference)
 sps = 10;                   % Samples per symbol
 span = 6;                   % Pulse span in symbols
 
@@ -53,26 +53,9 @@ fprintf('========================================\n\n');
 %% PULSE SHAPING FILTER (Square Root Raised Cosine)
 %% ========================================================================
 
-% Generate SRRC pulse
-t_vec = -span*sps : span*sps;
-t_norm = t_vec / sps;
-h_srrc = zeros(size(t_norm));
-
-for i = 1:length(t_norm)
-    t = t_norm(i);
-    if t == 0
-        h_srrc(i) = 1 - beta + 4*beta/pi;
-    elseif abs(t) == 1/(4*beta)
-        h_srrc(i) = (beta/sqrt(2)) * ((1+2/pi)*sin(pi/(4*beta)) + (1-2/pi)*cos(pi/(4*beta)));
-    else
-        num = sin(pi*t*(1-beta)) + 4*beta*t*cos(pi*t*(1+beta));
-        den = pi*t*(1 - (4*beta*t)^2);
-        h_srrc(i) = num / den;
-    end
-end
-
-% Normalize to unit energy
-h_srrc = h_srrc / sqrt(sum(h_srrc.^2));
+% Generate SRRC pulse using rcosdesign (same as reference implementation)
+h_srrc = rcosdesign(beta, span, sps, 'sqrt');
+h_srrc = h_srrc / norm(h_srrc);  % Normalize to unit energy
 delay = span * sps;
 
 %% ========================================================================
@@ -127,7 +110,7 @@ function [tx_sig, rx_mf, symbols, bits] = transmit_ftn_with_pa(N_sym, SNR_dB, ..
     % AWGN Channel (LINEAR)
     EbN0 = 10^(SNR_dB/10);
     noise_power = 1 / (2 * EbN0);  % For BPSK
-    noise = sqrt(noise_power) * (randn(size(tx_sig)) + 1j*randn(size(tx_sig)));
+    noise = sqrt(noise_power) * randn(size(tx_sig));  % Real noise for BPSK
     rx_noisy = tx_sig + noise;
 
     % Matched Filter
